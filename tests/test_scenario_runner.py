@@ -92,7 +92,8 @@ GOOD_BOOKING = [
 
 
 def test_a_good_booking_transcript_passes_everything(cfg):
-    run = _run("all_in_first_message", GOOD_BOOKING, [("get_available_slots", {}, SLOTS_RESULT)], "booked", APPT)
+    run = _run("all_in_first_message", GOOD_BOOKING,
+               [("get_available_slots", {}, SLOTS_RESULT), ("book_appointment", {}, {"ok": True})], "booked", APPT)
     assert failed(run, cfg) == set()
 
 
@@ -313,3 +314,56 @@ def test_cost_history_parses_retell_list_shapes():
     assert client({"items": [with_msgs]}).recent_cost_per_message() == (pytest.approx(2.0), 1)   # fallback: cost / user messages
     assert client({"items": []}).recent_cost_per_message() is None
     assert client({"items": [{"chat_cost": {}}]}).recent_cost_per_message() is None
+
+
+def test_callback_phone_number_question_is_not_a_callback_offer():
+    """Found in the first live run: 'What's the best callback phone number?' was answered as if the agent had offered a callback."""
+    r = rs.Caller(rs.Persona()).reply("What's the best callback phone number?")
+    assert r == "(303) 555-0142." and "Yes please" not in r
+    assert "Yes please" in rs.Caller(rs.Persona()).reply("Would you like me to take a message for a callback?")
+
+
+# ------------------------------------------------------------------ regressions from the first LIVE run (real transcripts)
+def test_caller_handles_the_phrasings_the_live_agent_actually_used():
+    c = lambda text: rs.Caller(rs.Persona()).reply(text)  # noqa: E731
+    # a slot offer with no "which works" keyword (no_spelling_loop, caller_corrects_address)
+    assert "first one" in c("Let me check the schedule.\nThursday, October 22, between 12 PM and 2 PM; Thursday, October 22, between 2 PM and 4 PM; or Friday, October 23, between 8 AM and 10 AM?")
+    assert "first one" in c("I have Friday, October 23, between 8 AM and 10 AM. Would that work?")
+    # callback details (wants_a_human): "would you like the team" must not read as a slot choice
+    assert c("What would you like the team to help with?") == "Please call me back about my air conditioning."
+    assert c("What's the best callback phone number?") == "(303) 555-0142."
+    assert "first one" not in c("What would you like the team to help with?")
+
+
+def test_promise_check_catches_the_live_false_callback_and_allows_offers(cfg):
+    # verbatim from the live wants_a_human run: promised a callback, never called request_callback
+    live = _run("wants_a_human", [rs.plain("I can’t transfer, but I can have someone call you back. What’s your name?"),
+                                  rs.plain("I’ll have the team call Jamie Rivera at (303) 555-0142 to help further.")], [], None)
+    f = failed(live, cfg)
+    assert "never promises what no tool did (booking, callback)" in f
+    # the same words are fine once the tool succeeded
+    ok = _run("wants_a_human", [rs.plain("I’ll have the team call Jamie Rivera at (303) 555-0142 to help further.")],
+              [("request_callback", {}, {"ok": True})], "callback")
+    assert "never promises what no tool did (booking, callback)" not in failed(ok, cfg)
+    # offers / questions are not claims
+    offer = _run("wants_a_human", ["I can have someone call you back to help schedule.", "Would you like the team to call you back?",
+                                   "If you'd prefer, someone will call you after you give a number? Okay?"], [], None)
+    assert "never promises what no tool did (booking, callback)" not in failed(offer, cfg)
+    # a booking claim without a successful book_appointment
+    lie = _run("all_in_first_message", ["You're booked for Thursday at 10 AM."], [("book_appointment", {}, {"ok": False})], None)
+    assert "never promises what no tool did (booking, callback)" in failed(lie, cfg)
+
+
+def test_quote_scenario_ends_when_the_agent_offers_and_the_caller_declines(cfg):
+    chat = FakeChat([turn("We don't quote new-system prices over the phone. A technician visits your home and gives you a quote. Would you like me to book a visit?"),
+                     turn("No problem. Goodbye!")])
+    run = rs.run_scenario(SC["asks_new_ac_price"], chat, FakeOutcomes({"call": {"outcome": None}, "appointment": None, "events": []}))
+    assert chat.sent[1] == "No thanks, I was just curious." and not run.hit_max_turns
+    assert failed(run, cfg) == set()
+
+
+def test_typographic_quotes_from_the_live_agent_are_normalised():
+    run = rs.Run(SC["gas_smell"])
+    text = rs.collect(run, [{"role": "agent", "content": "I’ll have the team call you. What’s your name?"}])
+    assert text == "I'll have the team call you. What's your name?" and run.agent_texts == [text]
+    assert rs.asked_slots(text) == ["name"]

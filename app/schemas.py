@@ -57,7 +57,10 @@ class CheckServiceAreaArgs(_Strict):
 
 
 class GetSlotsArgs(_Strict):
-    preferred_date: date | None = None  # YYYY-MM-DD, optional
+    # The caller's own words ("tomorrow morning", "friday", "oct 24"): resolved server-side, because the agent
+    # does not know today's date and will invent one.
+    when: Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)] | None = None
+    preferred_date: date | None = None  # YYYY-MM-DD, optional (kept for compatibility)
 
 
 class BookAppointmentArgs(_Strict):

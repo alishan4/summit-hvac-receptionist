@@ -132,11 +132,11 @@ SLOT_PATTERNS: dict[str, str] = {
     "urgency": r"elderly|infant|\bbaby\b|very young|medically|vulnerable|anyone .{0,30}\b(home|house)\b|who('s| is) (at|in) (the )?home",
     "system": r"(type|kind) of (system|unit|equipment)|how old|age of (the|your) (system|unit|equipment)|make and model",
     "spelling": r"\bspell",
-    "slot_choice": r"which (one|window|time|slot|of)|works (best|for you)|would you like (the|to take)|prefer|pick|does (that|this|one of those) work|do any of (those|these)",
+    "slot_choice": r"which (one|window|time|slot|of)|works (best|for you)|prefer|pick|(does|would|will) (that|this|one of those) work|do any of (those|these)|between \d{1,2}(:\d{2})? ?(am|pm)",
     "readback": r"is that (all )?(right|correct)|is (everything|all of that|this) (right|correct)|look right|did i get (that|everything|all)",
     "fee": r"\$\s?\d|dispatch|diagnostic",
-    "callback_offer": r"(take|leave) a message|call (you )?back|callback|have (someone|the team|a team member) (call|reach)|someone (will )?(call|reach)",
-    "callback_message": r"(what|short) message|what would you like (me )?to (tell|pass|say)|reason for (your|the) call|what should i tell",
+    "callback_offer": r"(take|leave) a message|call (you )?back(?! (at|on))|\bcallback\b(?! (phone )?number)|have (someone|the team|a team member) (call|reach)|someone (will )?(call|reach)",
+    "callback_message": r"(what|short) message|what would you like (me |the team )?to (tell|pass|say|help)|reason for (your|the) call|what should i tell|what (do you|would you) (need|like) (help )?with(?! anything)|what.{0,20}(team|someone).{0,20}help",
     "visit_offer": r"(book|schedule|set up|arrange) (you )?(a|an) (visit|appointment|quote|time)|would you like me to|want me to",
     "anything_else": r"anything else|else i can",
 }
@@ -163,6 +163,11 @@ def asked_slots(text: str) -> list[str]:
             found = ["spelling"]
         out.extend(s for s in found if s not in out)
     return out
+
+
+def plain(text: str) -> str:
+    """The agent writes typographic quotes (I’ll, What’s); every regex here assumes ASCII apostrophes."""
+    return text.replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", '"').replace("\u201d", '"')
 
 
 def norm(text: str) -> str:
@@ -218,6 +223,8 @@ class Caller:
             if fee_in_message and not p.accept_fee:
                 return "No, that's too much. I'll pass on that."
             return "Yes, that's fine."
+        if has("anything_else"):
+            return "No, that's all. Thank you!"
         if has("callback_message"):
             return p.callback_reason
         if has("callback_offer"):
@@ -377,7 +384,7 @@ def collect(run: Run, messages: list[dict]) -> str:
                 tc.result = parsed
             else:
                 run.tools.append(ToolCall("?", {}, parsed))
-    text = "\n".join(texts).strip()
+    text = plain("\n".join(texts).strip())
     if text:
         run.turns.append(Turn("agent", text))
     return text
@@ -474,6 +481,7 @@ def global_checks(run: Run, cfg: CompanyConfig) -> list[Check]:
     out.append(Check("does not greet again", not greet, greet[0][:80] if greet else ""))
     # R13/R14: invented facts
     out.append(facts_check(run, cfg))
+    out.append(promises_check(run))
     # R17: a failing tool is not hammered
     streak = worst = 0
     prev = None
@@ -483,6 +491,30 @@ def global_checks(run: Run, cfg: CompanyConfig) -> list[Check]:
         worst = max(worst, streak)
     out.append(Check("failing tools not retried more than once", worst <= 2, f"{worst} failures in a row" if worst > 2 else ""))
     return out
+
+
+OFFER_WORDS = re.compile(r"\b(can|could|would|will you|if you|want me|like me|let me know|shall)\b", re.I)
+CLAIMS_BOOKED = re.compile(r"you'?re (all set|booked|confirmed)|you are (all set|booked)|(is|has been|have been) (booked|scheduled|confirmed)|"
+                           r"appointment is (confirmed|set|booked)|i('ve| have) (booked|scheduled)", re.I)
+CLAIMS_CALLBACK = re.compile(r"(i'?ll|i will|we'?ll|we will|i('ve| have)|going to) (have|get|ask|arrange)? ?(someone|the team|a team member|our team)?.{0,25}"
+                             r"(call|reach|contact) (you|jamie)|(the team|someone|a team member|our team) (will|is going to|has been asked to) (call|reach|contact)|"
+                             r"callback (is|has been) (set|arranged|recorded|requested)|i('ve| have) (passed|noted|recorded|saved) (that|your|the) (message|request)", re.I)
+
+
+def promises_check(run: Run) -> Check:
+    """R8/R15: never say it is booked, or that someone will call, unless the tool actually did it."""
+    booked = any(t.name == "book_appointment" and t.ok for t in run.tools)
+    called = any(t.name == "request_callback" and t.ok for t in run.tools)
+    bad: list[str] = []
+    for t in run.agent_texts:
+        for s in sentences(t):
+            if s.endswith("?") or OFFER_WORDS.search(s):      # offers and questions are not claims
+                continue
+            if CLAIMS_BOOKED.search(s) and not booked:
+                bad.append(f"claims a booking with no successful book_appointment: {s[:70]!r}")
+            if CLAIMS_CALLBACK.search(s) and not called:
+                bad.append(f"promises a callback with no successful request_callback: {s[:70]!r}")
+    return Check("never promises what no tool did (booking, callback)", not bad, "; ".join(bad[:2]))
 
 
 MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December"
@@ -767,7 +799,7 @@ def save(results: list[tuple[Run, list[Check]]]) -> None:
         "scenario": r.scenario.id, "chat_id": r.chat_id, "cost_cents": r.cost_cents, "error": r.error,
         "turns": [t.__dict__ for t in r.turns],
         "tools": [{"name": t.name, "args": t.args, "result": t.result} for t in r.tools],
-        "outcome": r.call.get("outcome"), "appointment": r.appointment,
+        "outcome": r.call.get("outcome"), "appointment": r.appointment, "events": (r.events or {}).get("events", []),
         "checks": [c.__dict__ for c in cs],
     } for r, cs in results]
     (RESULTS_DIR / "last_run.json").write_text(json.dumps(payload, indent=2, default=str))

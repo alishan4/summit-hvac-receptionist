@@ -16,9 +16,12 @@ FastAPI -> Google Calendar (free/busy + events) | Twilio SMS | SMTP email | SQLi
 web/                       Next.js demo website (separate Vercel project)
 config/branding.yaml       white-label branding + public-site content + dashboard settings (+ config/branding/logo.svg)
 config/company.yaml        all client-specific values (name, tz, ZIPs, hours, fee, owner, greeting)
-prompts/agent_prompt.md    voice prompt, {{variables}} filled from company.yaml
+docs/agent_spec.md         the conversation spec: slots, 20 numbered rules, flow (prompts are written from it)
+prompts/core.md            shared prompt core ({{variables}} filled from company.yaml)
+prompts/voice.md, chat.md  small per-channel blocks appended to the core
 app/                       FastAPI app (routers/, services/, models, schemas, security)
-scripts/setup_retell_agent.py   create/update the Retell LLM + agent
+scripts/setup_retell_agent.py   create/update the voice + chat Retell LLMs and agents
+scripts/run_scenarios.py   scripted-caller scenario suite against the real chat agent (spends credits; see below)
 scripts/init_db.py         one-off table creation (never runs at startup)
 tests/                     pytest suite (no network, no credentials needed)
 ```
@@ -27,7 +30,7 @@ tests/                     pytest suite (no network, no credentials needed)
 
 1. `cp config/company.yaml config/acme.yaml` and edit it (name, timezone, ZIPs, hours, fee, owner contacts, greeting).
 2. Set `COMPANY_CONFIG_PATH=config/acme.yaml` in `.env`.
-3. Adjust the prompt wording if needed (`prompts/agent_prompt.md`). Every `{{name}}` must exist in `company.yaml` (the renderer fails loudly if not).
+3. Behaviour is defined in `docs/agent_spec.md` and rendered from `prompts/core.md` + `voice.md`/`chat.md`; company facts (name, fee, gas utility, quote policy) come only from `company.yaml`. Every `{{name}}` must exist there (the renderer fails loudly if not).
 4. Run `python scripts/setup_retell_agent.py`. Done: new agent, new calendar, new number.
 
 Hours, slot length, lead time, how many slots to offer, and the dispatch fee are all in the YAML `scheduling` / `pricing` sections.
@@ -134,6 +137,20 @@ Serverless notes:
 - **Side effects run before the response on Vercel.** The booking SMS, emergency alert and summary email run inline there, because a serverless function can be frozen right after it responds and drop background work. This adds roughly a second to those calls. Elsewhere (local, Docker) they run after the response.
 - **Limits.** `maxDuration` is 30 s. Retell's tool timeout is 15 s. A cold start adds about a second to the first call after idle time, so make one test call or hit `/health` before a live demo.
 - Hobby (free) plans are for non-commercial use under Vercel's terms. Move a paying client to Pro.
+
+## Agent behaviour: spec, prompts, scenario tests
+
+- **`docs/agent_spec.md`** is the contract: required slots, 20 numbered rules (collect only missing slots one at a time, one read-back, then the fee, then book; voice may ask spelling once, chat never; scope limits; no invented prices/times/policies; emergency path; failure handling; loop guard), and which scenario proves each rule. Change behaviour there first.
+- **Prompts** are one shared core (`prompts/core.md`) plus a small block per channel (`voice.md`, `chat.md`), rendered from `company.yaml`. Voice and chat get separate Retell LLMs built from the same core; `python scripts/setup_retell_agent.py` pushes both.
+- **Rules enforced in code, not just requested:** `book_appointment` needs `details_confirmed=true` and `fee_accepted=true`, and the backend refuses to book otherwise (R7).
+- **Scenario suite** (`scripts/run_scenarios.py`): ten scripted callers (all details at once, one by one, won't spell, corrects the address, gas smell, ZIP 90210, wants a human, off-topic/prompt-injection, declines the fee, asks the price of a new AC) run against the **real Retell chat agent and the deployed API**. A rule-based caller (no LLM, so deterministic and free) answers whatever the agent asks; outcomes are read back from our own API; every scenario also gets the global checks (no slot asked more than twice, one question per message, no spelling requests in chat, no repeated greeting, no invented prices/phones/times, no tool hammered after failing).
+  ```bash
+  python scripts/run_scenarios.py --list
+  python scripts/run_scenarios.py --estimate        # measured from your recent chats; spends nothing
+  python scripts/run_scenarios.py --yes             # asks first if the estimate exceeds --max-cost (default $1)
+  python scripts/run_scenarios.py --only gas_smell,declines_fee --yes -v
+  ```
+  It needs `RETELL_API_KEY`, `PUBLIC_BASE_URL`, `DEMO_ACCESS_CODE` and the chat agent id in `.env`. It **spends real credits** (Retell bills chat per message; about 2c each at the time of writing), and it ends with `POST /demo/reset` (use `--keep-data` to skip) because booking scenarios create real rows and calendar events. Full transcripts land in `scenario-results/last_run.json` (git-ignored). The harness itself is verified with no credits by `pytest tests/test_scenario_runner.py`.
 
 ## Demo website (for sales calls and Loom recordings)
 

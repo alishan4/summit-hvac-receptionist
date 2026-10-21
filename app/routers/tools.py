@@ -34,6 +34,7 @@ from app.services.deferred import defer
 from app.services.calls import _transcript_text, get_or_create_call, raise_urgency, save_transcript_snapshot
 from app.services.envelope import parse_envelope
 from app.services.events import record_event
+from app.services.when import parse_when
 from app.services.notify import notify_emergency
 from app.services.service_area import in_service_area
 from app.settings import Settings, get_settings
@@ -155,7 +156,13 @@ def get_available_slots(
         log.exception("calendar busy lookup failed", extra={"call_id": tc.call_id})
         return {"ok": False, "error": "calendar_unavailable",
                 "message": "Scheduling is unavailable right now. Apologize and take a callback request."}
-    slots = slot_logic.available_slots(cfg, now, busy, start_day=args.preferred_date)
+    pref = parse_when(args.when, now.astimezone(cfg.tz))
+    start_day = pref.day or args.preferred_date
+    slots = slot_logic.available_slots(cfg, now, busy, start_day=start_day, hour_range=pref.hour_range())
+    relaxed = False
+    if not slots and pref.hour_range():  # nothing in that part of the day: still offer something
+        slots = slot_logic.available_slots(cfg, now, busy, start_day=start_day)
+        relaxed = bool(slots)
     record_event(db, call.id, "slots_found", {
         "count": len(slots), "first": slot_logic.spoken_label(slots[0]) if slots else None})
     if not slots:
@@ -164,8 +171,10 @@ def get_available_slots(
         "ok": True,
         "slots": [_slot_json(cfg, s) for s in slots],
         "dispatch_fee": cfg.pricing.fee_spoken,
-        "message": f"Offer these {len(slots)} arrival windows using each label. Pass the chosen start "
-                   "value exactly as given to book_appointment.",
+        "message": (f"Offer these {len(slots)} arrival windows using each label. Pass the chosen start "
+                    "value exactly as given to book_appointment."
+                    + (f" These are the earliest after: {pref.matched}." if pref.matched and not relaxed else "")
+                    + (f" Nothing is open in the {pref.part} then; say so, and offer these instead." if relaxed else "")),
     }
 
 

@@ -87,6 +87,10 @@ def test_scope_pricing_and_no_invention_rules(voice):
     assert "the only price you ever state is the fee" in voice
     assert "Never state any other price, time, technician name, discount, warranty or policy" in voice
     assert "ONLY from `get_available_slots`" in voice and "can't transfer" in voice and "request_callback" in voice
+    # found by the first live scenario run
+    assert 'ASK "Would you like me to book a visit?" and wait' in voice and "Do not start collecting details until they say yes" in voice
+    assert "Caller asked to speak with a person" in voice and "Do not keep asking for it" in voice
+    assert "only after `request_callback` returned ok" in voice and "only after `book_appointment` returned ok" in voice
 
 
 def test_error_and_loop_rules(voice):

@@ -71,9 +71,14 @@ def available_slots(
     busy: list[Interval],
     start_day: date | None = None,
     limit: int | None = None,
+    hour_range: tuple[int, int] | None = None,
 ) -> list[Slot]:
-    """Next open windows, spread across days (max_slots_per_day) when possible."""
+    """Next open windows, spread across days (max_slots_per_day) when possible.
+
+    `hour_range` keeps only windows whose START hour is in [lo, hi) (morning/afternoon preference)."""
     free = [s for s in candidate_windows(cfg, now, start_day) if not any(s.overlaps(b) for b in busy)]
+    if hour_range:
+        free = [s for s in free if hour_range[0] <= s.start.hour < hour_range[1]]
     limit = limit or cfg.scheduling.slots_to_offer
     cap = cfg.scheduling.max_slots_per_day
     picked: list[Slot] = []

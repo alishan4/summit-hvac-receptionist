@@ -34,7 +34,7 @@ def build_tools(base_url: str, timeout_ms: int = 15000) -> list[dict]:
         custom(
             "get_available_slots",
             "Get the next open arrival windows from the technician calendar. Only offer what this returns.",
-            _obj({"preferred_date": {"type": "string", "description": "Optional YYYY-MM-DD if the caller wants a specific day or later"}}, []),
+            _obj({"when": {"type": "string", "description": "The caller's own words about timing, e.g. 'tomorrow morning', 'friday afternoon', 'oct 24'. Omit if they have no preference. NEVER compute or guess a calendar date yourself."}}, []),
             "Say a short phrase like 'Let me check the schedule.'",
         ),
         custom(
