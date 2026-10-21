@@ -35,3 +35,16 @@ def test_setup_script_dry_run():
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
     assert payload["agent"]["webhook_events"] == ["call_started", "call_ended", "call_analyzed"]
+
+
+def test_prompt_enforces_call_tuning_rules(cfg):
+    """Guards the behaviours tuned from test calls so a prompt edit can't silently drop them."""
+    out = load_and_render(ROOT / "prompts" / "agent_prompt.md", cfg)
+    fee_step = out[out.index("## Step 6"):out.index("## Step 7")]
+    assert out.index("## Step 5") < out.index("## Step 6")  # fee comes after the slot is picked
+    assert "$89" in fee_step and "even if the caller already mentioned a fee" in fee_step
+    assert "clear yes" in fee_step
+    assert "$89" not in out[:out.index("## Step 6")]  # not volunteered earlier
+    safety = out[out.index("## Step 1"):out.index("## Step 2")]
+    assert "Never ask" in safety and "my AC stopped working" in safety
+    assert "only for what is missing" in out.lower() or "only ask for what is still missing" in out

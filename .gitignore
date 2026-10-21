@@ -14,3 +14,5 @@ logs/
 secrets/
 *service-account*.json
 *credentials*.json
+.vercel
+.env*
