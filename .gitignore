@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.db
+.retell_agent.json
+secrets/
+.pytest_cache/
+*.sqlite
+*.sqlite3
+*.log
+logs/
+# service-account keys / credentials (JSON); allow none by default
+secrets/
+*service-account*.json
+*credentials*.json

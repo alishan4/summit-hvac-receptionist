@@ -1,0 +1,97 @@
+# Everything client-specific lives here. New client = copy this file,
+# edit it, and point COMPANY_CONFIG_PATH at it. Then re-run scripts/setup_retell_agent.py.
+company:
+  name: "Summit Heating & Air"
+  spoken_name: "Summit Heating and Air"
+  location: "Denver, Colorado"
+  timezone: "America/Denver"
+  assistant_name: "Summit's virtual assistant"
+
+greeting: >-
+  Thanks for calling Summit Heating and Air's after-hours line.
+  I'm an AI assistant, and I can help with service and scheduling.
+  What's going on with your system today?
+
+service_area:
+  description: "Denver and the surrounding metro area"
+  zips:
+    - "80002"
+    - "80003"
+    - "80004"
+    - "80010"
+    - "80011"
+    - "80012"
+    - "80013"
+    - "80014"
+    - "80015"
+    - "80016"
+    - "80017"
+    - "80202"
+    - "80203"
+    - "80204"
+    - "80205"
+    - "80206"
+    - "80207"
+    - "80209"
+    - "80210"
+    - "80211"
+    - "80212"
+    - "80214"
+    - "80215"
+    - "80216"
+    - "80218"
+    - "80219"
+    - "80220"
+    - "80221"
+    - "80222"
+    - "80223"
+    - "80224"
+    - "80226"
+    - "80227"
+    - "80228"
+    - "80230"
+    - "80231"
+    - "80232"
+    - "80233"
+    - "80234"
+    - "80235"
+    - "80236"
+    - "80237"
+    - "80238"
+    - "80239"
+    - "80246"
+    - "80247"
+    - "80249"
+
+scheduling:
+  # Technician availability. Day keys: mon..sun. Omit a day = no appointments.
+  business_hours:
+    mon: ["08:00", "18:00"]
+    tue: ["08:00", "18:00"]
+    wed: ["08:00", "18:00"]
+    thu: ["08:00", "18:00"]
+    fri: ["08:00", "18:00"]
+    sat: ["09:00", "15:00"]
+  window_hours: 2          # length of each arrival window
+  window_step_hours: 2     # spacing between window starts
+  min_lead_hours: 2        # earliest bookable = now + this
+  max_days_ahead: 7
+  slots_to_offer: 3
+  max_slots_per_day: 2     # spread offers over more than one day when possible
+
+pricing:
+  dispatch_fee_usd: 89
+  dispatch_fee_note: "This covers the technician's trip and diagnosis, and it's applied toward the repair if you go ahead with it."
+
+owner:
+  name: "Dana Whitfield"
+  phone: "+13035550100"    # owner alerts (SMS) - E.164
+  email: "owner@summit-hvac.example"
+
+emergency:
+  gas_utility_name: "Xcel Energy"
+  gas_utility_phone: "1-800-895-1999"   # verify for your client's utility
+  keywords_note: "gas smell, carbon monoxide alarm, smoke, sparks, burning smell"
+
+urgency:
+  freezing_temp_f: 32
