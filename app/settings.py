@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     retell_agent_id: str = ""  # voice agent (printed by scripts/setup_retell_agent.py)
     retell_chat_agent_id: str = ""  # chat agent sharing the same LLM
     demo_max_call_seconds: int = 240
+    phone_max_call_seconds: int = 900  # real phone calls: Retell agent cap (setup script) and dashboard staleness
     demo_web_calls_per_hour: int = 5  # per IP
     demo_chats_per_hour: int = 10  # per IP
     demo_max_calls_per_day: int = 30  # global ceiling on paid sessions (voice + chat)

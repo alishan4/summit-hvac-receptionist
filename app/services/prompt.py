@@ -11,8 +11,22 @@ _VAR = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
 RETELL_RUNTIME_VARS = {"user_number", "agent_number", "call_id"}
 
 
-def render_prompt(template: str, cfg: CompanyConfig) -> str:
+def opening_instruction(greeting: str, channel: str) -> str:
+    if channel == "chat":
+        return (
+            f'The chat window has already shown the visitor this greeting: "{greeting}" '
+            "Do NOT greet again or repeat it. Reply directly to their first message, and ask only for what "
+            "you still need. This is a text chat, so keep replies short."
+        )
+    return (
+        f'The call opens with this greeting, already spoken for you: "{greeting}" '
+        "Do not say it again. Carry on from whatever the caller says next."
+    )
+
+
+def render_prompt(template: str, cfg: CompanyConfig, channel: str = "voice") -> str:
     values = cfg.prompt_variables()
+    values["opening"] = opening_instruction(values["greeting"], channel)
     # Retell's timezone-aware clock; the literal is emitted after substitution (single pass).
     values["current_time_var"] = "{{current_time_" + cfg.company.timezone + "}}"
 
@@ -33,5 +47,5 @@ def render_prompt(template: str, cfg: CompanyConfig) -> str:
     return out
 
 
-def load_and_render(path: str | Path, cfg: CompanyConfig) -> str:
-    return render_prompt(Path(path).read_text(encoding="utf-8"), cfg)
+def load_and_render(path: str | Path, cfg: CompanyConfig, channel: str = "voice") -> str:
+    return render_prompt(Path(path).read_text(encoding="utf-8"), cfg, channel)

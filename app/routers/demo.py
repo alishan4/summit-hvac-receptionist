@@ -197,6 +197,10 @@ def chat_create(
             "max_messages": s.demo_max_chat_messages}
 
 
+def _norm(text: str) -> str:
+    return " ".join(text.split()).lower()
+
+
 def _live_chat(db: Session, chat_id: str, s: Settings, retell: RetellApi) -> Call:
     call = db.scalar(select(Call).where(Call.retell_call_id == chat_id))
     if call is None:
@@ -218,19 +222,36 @@ def chat_message(
     db: Session = Depends(get_db),
     s: Settings = Depends(get_settings),
     retell: RetellApi = Depends(get_retell_api),
+    cfg: CompanyConfig = Depends(get_company),
 ) -> dict:
     _live_chat(db, chat_id, s, retell)
     if _count(db, "chat_msg", datetime.now(UTC) - timedelta(days=1), ref=chat_id) >= s.demo_max_chat_messages:
         raise _err(429, "message_limit", "This chat reached its message limit. Start a new one.")
     _hit(db, "chat_msg", ip, ref=chat_id)
-    try:
-        res = retell.create_chat_completion(chat_id, body.content.strip())
-    except RetellApiError as exc:
-        log.error("retell chat completion failed", extra={"status": exc.status})
-        raise _err(502, "retell_error", "The receptionist didn't respond. Try again.")
-    msgs = res.get("messages") or []
+    first_turn = _count(db, "chat_msg", datetime.now(UTC) - timedelta(days=1), ref=chat_id) == 1
+    greeting = _norm(cfg.greeting)
+    content = body.content.strip()
+
+    def complete() -> list[dict]:
+        try:
+            return retell.create_chat_completion(chat_id, content).get("messages") or []
+        except RetellApiError as exc:
+            log.error("retell chat completion failed", extra={"status": exc.status})
+            raise _err(502, "retell_error", "The receptionist didn't respond. Try again.")
+
+    def agent_texts(msgs: list[dict]) -> list[str]:
+        return [m["content"] for m in msgs if m.get("role") == "agent" and m.get("content")]
+
+    msgs = complete()
+    texts = agent_texts(msgs)
+    if first_turn and texts and all(_norm(t) == greeting for t in texts):
+        # Retell spent the first turn on its begin message and ignored the visitor's. (The chat agent's LLM
+        # should have an empty begin_message: scripts/setup_retell_agent.py.) Ask once more.
+        log.warning("chat first turn returned only the greeting; resending the visitor's message")
+        msgs = complete()
     return {
-        "replies": [m["content"] for m in msgs if m.get("role") == "agent" and m.get("content")],
+        # the page already showed the greeting: never echo it back a second time
+        "replies": [t for t in agent_texts(msgs) if _norm(t) != greeting],
         "tools": [m["name"] for m in msgs if m.get("role") == "tool_call_invocation" and m.get("name")],
     }
 
@@ -311,14 +332,13 @@ def transcript_turns(text: str | None) -> list[dict]:
 
 
 def is_in_progress(call: Call, channel: str, ended: bool, s: Settings) -> bool:
-    """A demo web/chat session whose tab was simply closed never gets an 'ended' event. Past its time cap
-    (+ grace for Retell's end-of-call webhook) it is treated as finished so the dashboard stops showing
-    it as live. Real phone calls have no cap here and are unaffected."""
+    """A call leaves LIVE when its 'ended' event arrives. If that event never does (webhook lost, tab
+    closed), it leaves LIVE once it is older than its maximum duration plus a grace period for Retell's
+    end-of-call webhook: the demo cap for web/chat, the agent's cap for phone calls."""
     if ended:
         return False
-    if channel in ("web", "chat"):
-        return datetime.now(UTC) - call.created_at <= timedelta(seconds=s.demo_max_call_seconds + 90)
-    return True
+    cap = s.phone_max_call_seconds if channel == "phone" else s.demo_max_call_seconds
+    return datetime.now(UTC) - call.created_at <= timedelta(seconds=cap + 90)
 
 
 def appointment_out(cfg: CompanyConfig, a: Appointment) -> dict:
@@ -483,8 +503,8 @@ def calls(
 @router.post("/reset")
 def reset(_ip: str = Depends(require_code), db: Session = Depends(get_db),
           cal: CalendarClient = Depends(get_calendar)) -> dict:
-    """Wipe demo calls, bookings and their calendar events. The rate-limit ledger is kept on purpose,
-    so a reset can't be used to dodge the credit limits."""
+    """Wipe ALL calls (including stale 'live' ones), bookings and their calendar events. The rate-limit
+    ledger is kept on purpose, so a reset can't be used to dodge the credit limits."""
     appts = list(db.scalars(select(Appointment)))
     removed_events = 0
     for a in appts:
@@ -498,6 +518,7 @@ def reset(_ip: str = Depends(require_code), db: Session = Depends(get_db),
     db.execute(delete(CallEvent))
     db.execute(delete(Appointment))
     db.execute(delete(Call))
+    db.add(DemoHit(kind="reset", ip_hash="-"))  # late webhooks for calls that started before this are ignored
     db.commit()
     log.warning("demo reset", extra={"calls": calls, "appointments": len(appts)})
     return {"ok": True, "calls_deleted": calls, "appointments_deleted": len(appts),

@@ -13,11 +13,12 @@ from typing import TypeVar
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.company import CompanyConfig, get_company
 from app.db import get_db, session_scope
-from app.models import Call, Outcome
+from app.models import Call, CallEvent, Outcome
 from app.schemas import (
     BookAppointmentArgs,
     CheckServiceAreaArgs,
@@ -31,10 +32,12 @@ from app.services import slots as slot_logic
 from app.services.calendar import CalendarClient, get_calendar
 from app.services.deferred import defer
 from app.services.calls import _transcript_text, get_or_create_call, raise_urgency, save_transcript_snapshot
+from app.services.envelope import parse_envelope
 from app.services.events import record_event
 from app.services.notify import notify_emergency
 from app.services.service_area import in_service_area
-from datetime import UTC, datetime
+from app.settings import Settings, get_settings
+from datetime import UTC, datetime, timedelta
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/tools", tags=["retell-tools"])
@@ -49,25 +52,44 @@ class ToolCall:
     transcript: str | None = None  # conversation so far, as Retell includes it with every function call
 
 
-def _snapshot_text(call: dict) -> str | None:
-    return _transcript_text(call)
+def _live_demo_sessions(db: Session, s: Settings) -> list[Call]:
+    """Web/chat demo sessions that are still within their time cap and have not ended."""
+    since = datetime.now(UTC) - timedelta(seconds=s.demo_max_call_seconds + 90)
+    recent = list(db.scalars(select(Call).where(Call.created_at >= since)))
+    if not recent:
+        return []
+    evs = list(db.scalars(select(CallEvent).where(
+        CallEvent.call_id.in_([c.id for c in recent]), CallEvent.kind.in_(["call_started", "call_ended"]))))
+    ended = {e.call_id for e in evs if e.kind == "call_ended"}
+    demo = {e.call_id for e in evs if e.kind == "call_started" and (e.detail or {}).get("channel") in ("web", "chat")}
+    return [c for c in recent if c.id in demo and c.id not in ended]
 
 
-async def tool_call(body: bytes = Depends(require_retell_signature)) -> ToolCall:
+def tool_call(
+    body: bytes = Depends(require_retell_signature),
+    db: Session = Depends(get_db),
+    s: Settings = Depends(get_settings),
+) -> ToolCall:
     try:
         data = json.loads(body)
-        call = data.get("call") or {}
-        # voice sends call.call_id; chat sessions may identify themselves by chat_id instead
-        call_id = call.get("call_id") or call.get("chat_id") or data.get("chat_id")
-        if not isinstance(call_id, str) or not call_id:
-            raise KeyError("call_id")
-    except (ValueError, KeyError, TypeError, AttributeError):
-        raise HTTPException(status_code=400, detail="expected Retell envelope with call.call_id (or chat_id)")
-    args = data["args"] if isinstance(data.get("args"), dict) else {
-        k: v for k, v in data.items() if k not in ("call", "name", "chat_id")  # args_at_root mode
-    }
-    return ToolCall(call_id=call_id, from_number=call.get("from_number"), args=args,
-                    transcript=_snapshot_text(call))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="body is not JSON")
+    env = parse_envelope(data)
+    call_id = env.call_id
+    if call_id is None:
+        # No session id anywhere in the request. If exactly one demo web/chat session is live, it can only
+        # be that one. Several live sessions would make a guess unsafe, so those are rejected.
+        live = _live_demo_sessions(db, s)
+        if len(live) == 1:
+            call_id = live[0].retell_call_id
+            log.warning("tool call carried no session id; attributed to the only live demo session",
+                        extra={"call_id": call_id, "shape": env.shape})
+        else:
+            log.warning("tool request rejected: no call_id/chat_id found",
+                        extra={"shape": env.shape, "live_demo_sessions": len(live)})
+            raise HTTPException(status_code=400, detail="expected Retell envelope with call.call_id (or chat_id)")
+    return ToolCall(call_id=call_id, from_number=env.from_number, args=env.args,
+                    transcript=_transcript_text(env.transcript_source) if env.transcript_source else None)
 
 
 def _parse(model: type[M], tc: ToolCall) -> M | dict:

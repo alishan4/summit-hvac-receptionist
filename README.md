@@ -160,6 +160,13 @@ browser (/web) --X-Demo-Code--> API /demo/*  --Retell API key--> Retell (web cal
 - **Live captions:** Retell only exposes a call's transcript after it ends, and its live-transcript stream needs an API key in the browser, which this project refuses to do. The site therefore shows captions from the SDK's `update` events when the platform emits them, and otherwise falls back to the conversation-so-far that Retell sends to our tools on every function call (it refreshes each time the agent checks a system). The full transcript lands when the call ends.
 - **No caller ID:** web and chat sessions have no phone number. The prompt asks for one, and `book_appointment` / `request_callback` refuse to proceed without it.
 
+### Chat, tool calls and "Live" status: how they behave
+- **Chat has its own LLM.** `scripts/setup_retell_agent.py` creates a second Retell LLM for the chat agent: same tools, same prompt, but an empty `begin_message` and an opening that says the greeting was already shown. (Retell's chat emits the LLM's `begin_message` on the first turn, which swallowed the visitor's first message and repeated the greeting.) The API also drops any echoed greeting and, if Retell still spends the first turn on it, asks once more. **After pulling this change, re-run the setup script** to create/update the chat LLM; ids are kept in `.retell_agent.json` and the agent ids don't change.
+- **Tool requests are parsed tolerantly.** A voice call identifies itself as `call.call_id`; a chat session may arrive as `call.chat_id`, `chat.chat_id`, a top-level `chat_id`, and `args` may be a JSON string. All are accepted. If a request carries no id at all and exactly one demo web/chat session is live, it is attributed to that session (logged as a warning); with zero or several live sessions it is rejected with 400.
+- **Diagnosing a 400 on `/tools/*`.** A 400 means the signature verified but no session id was found (bad signatures are 401). The API logs `tool request rejected` with the request's *structure* (key names only, never values or PII). Read it with `npx vercel logs --since 15m` (Hobby keeps only a short window) and send that line along.
+- **When a call is "Live".** A call leaves Live when its `call_ended` arrives. If that webhook never does, it leaves Live once it is older than its maximum duration plus 90 s: `DEMO_MAX_CALL_SECONDS` for web/chat, `PHONE_MAX_CALL_SECONDS` for phone calls.
+- **Reset clears everything**, including stale "live" calls, and records the reset time so a late end-of-call webhook for an older call can't bring it back as a ghost row.
+
 ### Protecting your Retell credits
 | Guard | Where |
 |---|---|
