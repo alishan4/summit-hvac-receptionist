@@ -74,21 +74,32 @@ def test_emergency_alert_sent_before_response_on_serverless(client, monkeypatch)
     assert len(sms.SENT_LOG) == 1 and len(email.SENT_LOG) == 1
 
 
-def test_vercel_config_routes_everything_to_app():
+def test_vercel_config_does_not_rewrite_paths():
+    """A rewrite/route to another file makes the runtime hand FastAPI the *rewritten* path
+    (e.g. /api/index) so every route 404s. Vercel's FastAPI zero-config routes originals."""
     cfg = json.loads((ROOT / "vercel.json").read_text())
-    assert cfg["rewrites"] == [{"source": "/(.*)", "destination": "/api/index"}]
-    assert "config" in cfg["functions"]["api/index.py"]["includeFiles"]
-    assert "prompts" in cfg["functions"]["api/index.py"]["includeFiles"]
+    assert "rewrites" not in cfg and "routes" not in cfg
+    assert not (ROOT / "api").exists(), "api/ files become their own functions and shadow the app"
+    fn = cfg["functions"]["app/main.py"]
+    assert "config" in fn["includeFiles"] and "prompts" in fn["includeFiles"]
 
 
-def test_vercel_entrypoint_exposes_asgi_app():
-    import importlib.util
+def test_vercel_entrypoint_resolves_to_asgi_app():
+    import importlib
+    import tomllib
 
-    spec = importlib.util.spec_from_file_location("vercel_index", ROOT / "api" / "index.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    paths = set(mod.app.openapi()["paths"])
-    assert {"/health", "/tools/book_appointment", "/webhooks/retell"} <= paths
+    ep = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["vercel"]["entrypoint"]
+    module, attr = ep.split(":")
+    assert (ROOT / (module.replace(".", "/") + ".py")).exists()
+    app = getattr(importlib.import_module(module), attr)
+    assert {"/health", "/tools/book_appointment", "/webhooks/retell"} <= set(app.openapi()["paths"])
+
+
+@pytest.mark.parametrize("path,status", [("/health", 200), ("/api/index", 404), ("/api/index/health", 404)])
+def test_asgi_routes_by_original_path_only(client, path, status):
+    """Simulates the platform: FastAPI must be given the original path. If the runtime passes a
+    rewrite destination instead, nothing matches - which is the bug this config avoids."""
+    assert client.get(path).status_code == status
 
 
 def test_no_runtime_filesystem_writes_in_app_code():

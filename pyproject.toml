@@ -25,3 +25,9 @@ pythonpath = ["."]
 
 [tool.setuptools]
 packages = []
+
+# Vercel zero-config FastAPI: serve app.main:app with the ORIGINAL request path.
+# Do NOT add vercel.json "rewrites"/"routes" to an api/ file: the function then sees the
+# rewritten path (e.g. /api/index) and FastAPI 404s every route.
+[tool.vercel]
+entrypoint = "app.main:app"

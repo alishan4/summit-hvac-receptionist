@@ -13,7 +13,6 @@ FastAPI -> Google Calendar (free/busy + events) | Twilio SMS | SMTP email | SQLi
 ## Project layout
 
 ```
-api/index.py               Vercel serverless entrypoint (vercel.json rewrites all routes here)
 config/company.yaml        all client-specific values (name, tz, ZIPs, hours, fee, owner, greeting)
 prompts/agent_prompt.md    voice prompt, {{variables}} filled from company.yaml
 app/                       FastAPI app (routers/, services/, models, schemas, security)
@@ -99,7 +98,7 @@ Use Postgres by setting `DATABASE_URL` to a `postgresql://...` URL (the `psycopg
 
 ## Deploy to Vercel (free tier) with Neon Postgres
 
-The app runs as one Python serverless function (`api/index.py`); `vercel.json` rewrites every route (`/health`, `/tools/*`, `/webhooks/retell`) to it. Dependencies come from `requirements.txt` (keep it in sync with `pyproject.toml`).
+The app runs as one Python serverless function using Vercel's zero-config FastAPI support: `[tool.vercel] entrypoint = "app.main:app"` in `pyproject.toml`, and `vercel.json` only sets `maxDuration` and bundles `config/` + `prompts/`. Vercel routes every path (`/health`, `/tools/*`, `/webhooks/retell`) to the app **unchanged**. Do not add `rewrites`/`routes` to an `api/` file: the function then receives the rewritten path (e.g. `/api/index`) and every route returns FastAPI's `{"detail":"Not Found"}`. Dependencies come from `requirements.txt` (keep it in sync with `pyproject.toml`).
 
 1. **Create a Neon project** at neon.tech (free plan is fine). Pick a region close to your Vercel region (default `iad1`, US East).
 2. **Copy the pooled connection string**: Neon dashboard -> *Connect* -> toggle **Connection pooling** on. The host contains `-pooler`, e.g.
