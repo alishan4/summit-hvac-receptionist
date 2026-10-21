@@ -1,4 +1,8 @@
-"""Render prompts/agent_prompt.md from company.yaml. Syntax: {{name}} (no logic, no dependencies)."""
+"""Build the agent prompts from prompts/core.md + one channel block, filled from company.yaml.
+
+Syntax is {{name}} (no logic, no dependencies). The voice and chat prompts share one core, so a rule
+changed there changes both channels; only the channel block and the opening differ.
+"""
 from __future__ import annotations
 
 import re
@@ -6,6 +10,7 @@ from pathlib import Path
 
 from app.company import CompanyConfig
 
+CHANNELS = ("voice", "chat")
 _VAR = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
 # Resolved by Retell at call time, so they must survive our rendering untouched.
 RETELL_RUNTIME_VARS = {"user_number", "agent_number", "call_id"}
@@ -15,8 +20,7 @@ def opening_instruction(greeting: str, channel: str) -> str:
     if channel == "chat":
         return (
             f'The chat window has already shown the visitor this greeting: "{greeting}" '
-            "Do NOT greet again or repeat it. Reply directly to their first message, and ask only for what "
-            "you still need. This is a text chat, so keep replies short."
+            "Do NOT greet again or repeat it. Reply directly to their first message."
         )
     return (
         f'The call opens with this greeting, already spoken for you: "{greeting}" '
@@ -24,11 +28,12 @@ def opening_instruction(greeting: str, channel: str) -> str:
     )
 
 
-def render_prompt(template: str, cfg: CompanyConfig, channel: str = "voice") -> str:
+def render_prompt(core: str, channel_block: str, cfg: CompanyConfig, channel: str = "voice") -> str:
+    if channel not in CHANNELS:
+        raise ValueError(f"unknown channel {channel!r}; use one of {CHANNELS}")
     values = cfg.prompt_variables()
     values["opening"] = opening_instruction(values["greeting"], channel)
-    # Retell's timezone-aware clock; the literal is emitted after substitution (single pass).
-    values["current_time_var"] = "{{current_time_" + cfg.company.timezone + "}}"
+    template = core.replace("{{channel_block}}", channel_block.strip())
 
     missing: set[str] = set()
 
@@ -47,5 +52,11 @@ def render_prompt(template: str, cfg: CompanyConfig, channel: str = "voice") -> 
     return out
 
 
-def load_and_render(path: str | Path, cfg: CompanyConfig, channel: str = "voice") -> str:
-    return render_prompt(Path(path).read_text(encoding="utf-8"), cfg, channel)
+def build_prompt(prompt_dir: str | Path, cfg: CompanyConfig, channel: str = "voice") -> str:
+    d = Path(prompt_dir)
+    return render_prompt(
+        (d / "core.md").read_text(encoding="utf-8"),
+        (d / f"{channel}.md").read_text(encoding="utf-8"),
+        cfg,
+        channel,
+    )

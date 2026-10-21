@@ -62,6 +62,7 @@ class Scheduling(BaseModel):
 class Pricing(BaseModel):
     dispatch_fee_usd: float = Field(ge=0)
     dispatch_fee_note: str = ""
+    quote_policy: str = "We don't quote new-system prices over the phone. A technician visits your home and gives you a quote."
 
     @property
     def fee_spoken(self) -> str:
@@ -114,7 +115,7 @@ class CompanyConfig(BaseModel):
         return ZoneInfo(self.company.timezone)
 
     def prompt_variables(self) -> dict[str, str]:
-        """Flat values available as {{name}} in prompts/agent_prompt.md."""
+        """Flat values available as {{name}} in prompts/core.md and the channel blocks."""
         s = self.scheduling
         return {
             "company_name": self.company.name,
@@ -126,6 +127,7 @@ class CompanyConfig(BaseModel):
             "service_area_description": self.service_area.description,
             "dispatch_fee": self.pricing.fee_spoken,
             "dispatch_fee_note": self.pricing.dispatch_fee_note,
+            "quote_policy": self.pricing.quote_policy,
             "window_hours": str(s.window_hours),
             "slots_to_offer": str(s.slots_to_offer),
             "gas_utility_name": self.emergency.gas_utility_name,

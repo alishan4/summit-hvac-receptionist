@@ -82,6 +82,7 @@ scheduling:
 pricing:
   dispatch_fee_usd: 89
   dispatch_fee_note: "This covers the technician's trip and diagnosis, and it's applied toward the repair if you go ahead with it."
+  quote_policy: "We don't quote new-system prices over the phone. A technician visits your home, assesses it, and gives you a written quote."
 
 owner:
   name: "Dana Whitfield"

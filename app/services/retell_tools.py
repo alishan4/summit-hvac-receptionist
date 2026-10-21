@@ -39,7 +39,7 @@ def build_tools(base_url: str, timeout_ms: int = 15000) -> list[dict]:
         ),
         custom(
             "book_appointment",
-            "Book the chosen arrival window. Only call after the caller agreed to the dispatch fee and chose a slot.",
+            "Book the chosen arrival window. Only call after: slot chosen, read-back confirmed, fee accepted. Never set the two confirmation flags to true unless the caller actually said so.",
             _obj(
                 {
                     "customer_name": {"type": "string"},
@@ -51,8 +51,10 @@ def build_tools(base_url: str, timeout_ms: int = 15000) -> list[dict]:
                     "urgency": {"type": "string", "enum": [e.value for e in Urgency]},
                     "system_info": {"type": "string", "description": "System type and age, if known"},
                     "slot_start": {"type": "string", "description": "The exact `start` value of the chosen slot"},
+                    "details_confirmed": {"type": "boolean", "description": "true only after you read back ALL details and the caller said the read-back is right"},
+                    "fee_accepted": {"type": "boolean", "description": "true only after you stated the fee and the caller explicitly said yes"},
                 },
-                ["customer_name", "address", "zip", "issue_type", "slot_start"],
+                ["customer_name", "address", "zip", "issue_type", "slot_start", "details_confirmed", "fee_accepted"],
             ),
             "Say a short phrase like 'Booking that now.'",
         ),

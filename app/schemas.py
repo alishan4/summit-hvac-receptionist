@@ -70,6 +70,10 @@ class BookAppointmentArgs(_Strict):
     urgency: Urgency = Urgency.ROUTINE
     system_info: Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] | None = None
     slot_start: datetime
+    # Set by the agent only after the read-back was confirmed and the caller said yes to the fee.
+    # The backend refuses to book without both (docs/agent_spec.md R7).
+    details_confirmed: bool = False
+    fee_accepted: bool = False
 
     @field_validator("phone")
     @classmethod

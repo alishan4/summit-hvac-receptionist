@@ -20,3 +20,4 @@ secrets/
 !web/.env.example
 web/node_modules/
 web/.next/
+scenario-results/

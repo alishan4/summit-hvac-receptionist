@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 Status = Literal[
     "booked", "already_booked", "slot_unavailable", "out_of_area", "emergency_call", "calendar_error",
-    "phone_required",
+    "phone_required", "details_not_confirmed", "fee_not_accepted",
 ]
 
 
@@ -82,6 +82,10 @@ def book_appointment(
     ok, zip5 = in_service_area(cfg, req.zip)
     if not ok or zip5 is None:
         return BookingResult("out_of_area")
+    if not req.details_confirmed:  # R5/R7: the read-back must have been confirmed
+        return BookingResult("details_not_confirmed")
+    if not req.fee_accepted:  # R6/R7: and the caller must have said yes to the fee
+        return BookingResult("fee_not_accepted")
 
     start = req.slot_start if req.slot_start.tzinfo else req.slot_start.replace(tzinfo=cfg.tz)
     start = start.astimezone(cfg.tz)

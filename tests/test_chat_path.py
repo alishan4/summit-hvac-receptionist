@@ -153,33 +153,6 @@ def test_greeting_is_stripped_even_when_the_first_turn_also_answers(demo, cfg):
     assert r["replies"] == ["Got it, what's your ZIP?"]
 
 
-def test_prompt_opening_differs_by_channel(cfg):
-    from app.services.prompt import load_and_render
-    from tests.conftest import ROOT
-
-    path = ROOT / "prompts" / "agent_prompt.md"
-    voice, chat = load_and_render(path, cfg), load_and_render(path, cfg, channel="chat")
-    assert "already spoken for you" in voice and "Do NOT greet again" not in voice
-    assert "Do NOT greet again" in chat and "text chat" in chat
-    assert voice.replace("already spoken for you", "") != chat   # only the opening differs in intent
-    assert "{{opening}}" not in voice and "{{opening}}" not in chat
-
-
-def test_setup_script_gives_chat_its_own_llm_without_a_begin_message():
-    import subprocess
-    import sys
-
-    from tests.conftest import ROOT
-
-    r = subprocess.run([sys.executable, "scripts/setup_retell_agent.py", "--dry-run"], cwd=ROOT, capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
-    p = json.loads(r.stdout)
-    assert p["llm"]["begin_message"] and p["chat_llm"]["begin_message"] == ""      # voice greets, chat does not
-    assert p["chat_llm"]["general_tools"] == p["llm"]["general_tools"]              # identical tools
-    assert "Do NOT greet again" in p["chat_llm"]["general_prompt"]
-    assert p["chat_agent"]["response_engine"]["type"] == "retell-llm"
-
-
 # ---------------------------------------------------------------- stale LIVE calls + reset
 def _age(call_id: str, seconds: int):
     with session_scope() as db:

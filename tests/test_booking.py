@@ -6,7 +6,8 @@ from app.services import sms
 from app.services.calendar import get_calendar
 from tests.conftest import signed_post, tool_body
 
-ADDR = {"customer_name": "Jamie Rivera", "address": "123 Main St", "zip": "80203", "issue_type": "no_heat"}
+ADDR = {"customer_name": "Jamie Rivera", "address": "123 Main St", "zip": "80203", "issue_type": "no_heat",
+        "details_confirmed": True, "fee_accepted": True}
 
 
 def slots(client, call_id):
@@ -120,3 +121,19 @@ def test_args_at_root_supported(client):
 def test_out_of_area_check(client):
     r = signed_post(client, "/tools/check_service_area", tool_body("c1", "x", {"zip": "80301"})).json()
     assert r["ok"] and r["in_service_area"] is False and "do not" in r["message"].lower()
+
+
+def test_booking_requires_confirmation_and_fee(client):
+    """R7: the order read-back -> fee -> book is enforced by the backend, not just requested in the prompt."""
+    s = slots(client, "c_guard")[0]["start"]
+    for flags, status in (({"details_confirmed": False}, "details_not_confirmed"),
+                          ({"fee_accepted": False}, "fee_not_accepted"),
+                          ({"details_confirmed": False, "fee_accepted": False}, "details_not_confirmed")):
+        r = book(client, "c_guard", s, **flags)
+        assert r["ok"] is False and r["status"] == status and "Do not book" in r["message"]
+    assert rows() == [] and get_calendar().events == {}                      # nothing was created
+    args = {k: v for k, v in ADDR.items() if k not in ("details_confirmed", "fee_accepted")}
+    omitted = signed_post(client, "/tools/book_appointment",
+                          tool_body("c_guard", "x", {**args, "slot_start": s})).json()   # flags omitted entirely
+    assert omitted["status"] == "details_not_confirmed" and rows() == []
+    assert book(client, "c_guard", s)["status"] == "booked"                  # both true -> books

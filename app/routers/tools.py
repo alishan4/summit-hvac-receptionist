@@ -213,6 +213,14 @@ def book_appointment(
     if res.status == "out_of_area":
         return {"ok": False, "status": res.status,
                 "message": "That ZIP is outside our service area. Do not book. Offer to take a message."}
+    if res.status == "details_not_confirmed":
+        return {"ok": False, "status": res.status,
+                "message": "Do not book yet. Read back ALL the details in one message, end with 'Is that right?', "
+                           "and wait for an explicit yes. Then state the fee."}
+    if res.status == "fee_not_accepted":
+        return {"ok": False, "status": res.status,
+                "message": "Do not book yet. State the fee and get an explicit yes first. If the caller declines, "
+                           "do not book: offer a callback with request_callback."}
     if res.status == "phone_required":
         return {"ok": False, "status": res.status,
                 "message": "There is no caller ID on this session. Ask the caller for the best callback "

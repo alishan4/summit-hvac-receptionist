@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # Postgres (Neon pooled string) in prod. The SQLite default is for local dev/tests only.
     database_url: str = "sqlite:///./summit.db"
     company_config_path: str = "config/company.yaml"
-    prompt_path: str = "prompts/agent_prompt.md"
+    prompt_dir: str = "prompts"  # core.md + voice.md + chat.md
 
     # Retell
     retell_api_key: str = ""

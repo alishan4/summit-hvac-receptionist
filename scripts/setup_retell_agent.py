@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.company import load_company  # noqa: E402
-from app.services.prompt import load_and_render  # noqa: E402
+from app.services.prompt import build_prompt  # noqa: E402
 from app.services.retell_tools import build_tools  # noqa: E402
 from app.settings import get_settings  # noqa: E402
 
@@ -33,7 +33,7 @@ def build_payloads(llm_id: str | None = None, chat_llm_id: str | None = None) ->
     s = get_settings()
     cfg = load_company(s.company_config_path)
     llm: dict = {
-        "general_prompt": load_and_render(s.prompt_path, cfg),
+        "general_prompt": build_prompt(s.prompt_dir, cfg, "voice"),
         "begin_message": " ".join(cfg.greeting.split()),
         "general_tools": build_tools(s.public_base_url),
     }
@@ -44,7 +44,7 @@ def build_payloads(llm_id: str | None = None, chat_llm_id: str | None = None) ->
     # already shows the greeting, so the chat LLM waits for the visitor and never greets.
     chat_llm: dict = {
         **llm,
-        "general_prompt": load_and_render(s.prompt_path, cfg, channel="chat"),
+        "general_prompt": build_prompt(s.prompt_dir, cfg, "chat"),
         "begin_message": "",
     }
     agent: dict = {
