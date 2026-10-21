@@ -23,13 +23,15 @@ from app.schemas import BookAppointmentArgs
 from app.services import slots as slot_logic
 from app.services.calendar import CalendarClient
 from app.services.calls import raise_urgency
+from app.services.events import record_event
 from app.services.service_area import in_service_area
 from app.services.sms import send_sms
 
 log = logging.getLogger(__name__)
 
 Status = Literal[
-    "booked", "already_booked", "slot_unavailable", "out_of_area", "emergency_call", "calendar_error"
+    "booked", "already_booked", "slot_unavailable", "out_of_area", "emergency_call", "calendar_error",
+    "phone_required",
 ]
 
 
@@ -88,18 +90,21 @@ def book_appointment(
     if existing := db.scalar(select(Appointment).where(Appointment.idempotency_key == key)):
         return BookingResult("already_booked", existing)
 
+    phone = req.phone or call.caller_number
+    if not phone:  # web/chat sessions have no caller ID: never book a visit we can't confirm
+        return BookingResult("phone_required")
+
     window = slot_logic.search_range(cfg, now)
     busy = cal.busy(*window)
     slot = slot_logic.find_slot(cfg, now, busy, start)
     if slot is None:
         return BookingResult("slot_unavailable", alternatives=slot_logic.available_slots(cfg, now, busy))
 
-    phone = req.phone or call.caller_number
     appt = Appointment(
         call_id=call.id,
         idempotency_key=key,
         customer_name=req.customer_name,
-        phone=phone or "",
+        phone=phone,
         address=req.address,
         zip=zip5,
         issue_type=req.issue_type.value,
@@ -160,3 +165,4 @@ def send_confirmation_sms(db: Session, cfg: CompanyConfig, appointment_id: int) 
     if send_sms(appt.phone, confirmation_sms_text(cfg, appt)):
         appt.sms_sent = True
         db.commit()
+        record_event(db, appt.call_id, "confirmation_sms_sent", {"appointment_id": appt.id})

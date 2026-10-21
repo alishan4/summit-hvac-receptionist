@@ -25,6 +25,19 @@ class Settings(BaseSettings):
     retell_voice_id: str = "11labs-Adrian"
     retell_llm_model: str = ""  # empty = Retell default
 
+    # Demo site (/demo endpoints). Unset DEMO_ACCESS_CODE = demo endpoints disabled.
+    demo_access_code: str = ""
+    demo_allowed_origins: str = ""  # comma-separated, e.g. https://summit-demo.vercel.app
+    retell_agent_id: str = ""  # voice agent (printed by scripts/setup_retell_agent.py)
+    retell_chat_agent_id: str = ""  # chat agent sharing the same LLM
+    demo_max_call_seconds: int = 240
+    demo_web_calls_per_hour: int = 5  # per IP
+    demo_chats_per_hour: int = 10  # per IP
+    demo_max_calls_per_day: int = 30  # global ceiling on paid sessions (voice + chat)
+    demo_max_chat_messages: int = 30  # per chat session
+    demo_bad_codes_per_hour: int = 10  # per IP, brute-force guard
+    branding_config_path: str = "config/branding.yaml"
+
     # Calendar
     calendar_backend: Literal["google", "fake"] = "google"
     google_calendar_id: str = ""
@@ -47,6 +60,10 @@ class Settings(BaseSettings):
     smtp_starttls: bool = True
     resend_api_key: str = ""
 
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip().rstrip("/") for o in self.demo_allowed_origins.split(",") if o.strip()]
 
     @property
     def serverless(self) -> bool:

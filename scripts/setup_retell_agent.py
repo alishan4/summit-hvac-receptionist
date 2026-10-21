@@ -29,7 +29,7 @@ API = "https://api.retellai.com"
 STATE = ROOT / ".retell_agent.json"
 
 
-def build_payloads(llm_id: str | None = None) -> tuple[dict, dict]:
+def build_payloads(llm_id: str | None = None) -> tuple[dict, dict, dict]:
     s = get_settings()
     cfg = load_company(s.company_config_path)
     llm: dict = {
@@ -51,20 +51,29 @@ def build_payloads(llm_id: str | None = None) -> tuple[dict, dict]:
         "max_call_duration_ms": 900000,
         "response_engine": {"type": "retell-llm", "llm_id": llm_id or "<llm_id>"},
     }
-    return llm, agent
+    # Text chat agent: same LLM id => same prompt and same tools as the voice agent.
+    chat: dict = {
+        "agent_name": f"{cfg.company.name} - After Hours (chat)",
+        "language": "en-US",
+        "webhook_url": f"{s.public_base_url.rstrip('/')}/webhooks/retell",
+        "webhook_events": ["chat_started", "chat_ended", "chat_analyzed"],
+        "response_engine": {"type": "retell-llm", "llm_id": llm_id or "<llm_id>"},
+    }
+    return llm, agent, chat
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-chat", action="store_true", help="skip the text-chat agent (demo site chat tab)")
     args = ap.parse_args()
     s = get_settings()
 
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
-    llm_payload, agent_payload = build_payloads(state.get("llm_id"))
+    llm_payload, agent_payload, chat_payload = build_payloads(state.get("llm_id"))
 
     if args.dry_run:
-        print(json.dumps({"llm": llm_payload, "agent": agent_payload}, indent=2))
+        print(json.dumps({"llm": llm_payload, "agent": agent_payload, "chat_agent": chat_payload}, indent=2))
         return 0
     if not s.retell_api_key:
         print("RETELL_API_KEY is not set", file=sys.stderr)
@@ -96,9 +105,23 @@ def main() -> int:
             agent_id = call("POST", "/create-agent", agent_payload)["agent_id"]
             print(f"created agent {agent_id}")
 
-    STATE.write_text(json.dumps({"llm_id": llm_id, "agent_id": agent_id}, indent=2))
+        chat_agent_id = state.get("chat_agent_id")
+        if not args.no_chat:
+            chat_payload["response_engine"]["llm_id"] = llm_id
+            if chat_agent_id:
+                call("PATCH", f"/update-chat-agent/{chat_agent_id}", chat_payload)
+                print(f"updated chat agent {chat_agent_id}")
+            else:
+                chat_agent_id = call("POST", "/create-chat-agent", chat_payload)["agent_id"]
+                print(f"created chat agent {chat_agent_id}")
+
+    STATE.write_text(json.dumps({"llm_id": llm_id, "agent_id": agent_id, "chat_agent_id": chat_agent_id}, indent=2))
     print(f"\nNext: in the Retell dashboard, set agent '{agent_payload['agent_name']}' as the inbound agent "
           "for your imported Twilio number.")
+    print("\nFor the demo website, set these env vars on the API project (Vercel) and redeploy:")
+    print(f"  RETELL_AGENT_ID={agent_id}")
+    if chat_agent_id:
+        print(f"  RETELL_CHAT_AGENT_ID={chat_agent_id}")
     return 0
 
 

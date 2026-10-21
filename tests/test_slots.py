@@ -61,3 +61,12 @@ def test_find_slot_rejects_off_grid_and_past(cfg, monday_9am):
 def test_spoken_label(cfg, monday_9am):
     s = available_slots(cfg, monday_9am, [], limit=1)[0]
     assert spoken_label(s) == "Monday, October 19, between 12 PM and 2 PM"
+
+
+def test_window_label_compact(cfg, monday_9am):
+    from app.services.slots import window_label
+
+    morning = Slot(datetime(2026, 10, 19, 8, 0, tzinfo=DENVER), datetime(2026, 10, 19, 10, 0, tzinfo=DENVER))
+    crossing = Slot(datetime(2026, 10, 19, 11, 0, tzinfo=DENVER), datetime(2026, 10, 19, 13, 0, tzinfo=DENVER))
+    assert window_label(morning) == "8–10 AM"
+    assert window_label(crossing) == "11 AM–1 PM"

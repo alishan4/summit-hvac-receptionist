@@ -30,7 +30,8 @@ from app.services import booking as booking_svc
 from app.services import slots as slot_logic
 from app.services.calendar import CalendarClient, get_calendar
 from app.services.deferred import defer
-from app.services.calls import get_or_create_call, raise_urgency
+from app.services.calls import _transcript_text, get_or_create_call, raise_urgency, save_transcript_snapshot
+from app.services.events import record_event
 from app.services.notify import notify_emergency
 from app.services.service_area import in_service_area
 from datetime import UTC, datetime
@@ -45,19 +46,28 @@ class ToolCall:
     call_id: str
     from_number: str | None
     args: dict
+    transcript: str | None = None  # conversation so far, as Retell includes it with every function call
+
+
+def _snapshot_text(call: dict) -> str | None:
+    return _transcript_text(call)
 
 
 async def tool_call(body: bytes = Depends(require_retell_signature)) -> ToolCall:
     try:
         data = json.loads(body)
-        call = data["call"]
-        call_id = call["call_id"]
-    except (ValueError, KeyError, TypeError):
-        raise HTTPException(status_code=400, detail="expected Retell envelope with call.call_id")
+        call = data.get("call") or {}
+        # voice sends call.call_id; chat sessions may identify themselves by chat_id instead
+        call_id = call.get("call_id") or call.get("chat_id") or data.get("chat_id")
+        if not isinstance(call_id, str) or not call_id:
+            raise KeyError("call_id")
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise HTTPException(status_code=400, detail="expected Retell envelope with call.call_id (or chat_id)")
     args = data["args"] if isinstance(data.get("args"), dict) else {
-        k: v for k, v in data.items() if k not in ("call", "name")  # args_at_root mode
+        k: v for k, v in data.items() if k not in ("call", "name", "chat_id")  # args_at_root mode
     }
-    return ToolCall(call_id=call_id, from_number=call.get("from_number"), args=args)
+    return ToolCall(call_id=call_id, from_number=call.get("from_number"), args=args,
+                    transcript=_snapshot_text(call))
 
 
 def _parse(model: type[M], tc: ToolCall) -> M | dict:
@@ -86,10 +96,12 @@ def check_service_area(
     args = _parse(CheckServiceAreaArgs, tc)
     if isinstance(args, dict):
         return args
-    get_or_create_call(db, tc.call_id, tc.from_number)
+    call = get_or_create_call(db, tc.call_id, tc.from_number)
+    save_transcript_snapshot(db, call, tc.transcript)
     ok, z = in_service_area(cfg, args.zip)
     if z is None:
         return {"ok": False, "error": "invalid_zip", "message": "That isn't a 5-digit ZIP. Ask the caller to repeat it."}
+    record_event(db, call.id, "service_area_checked", {"zip": z, "in_area": ok})
     log.info("service area check", extra={"call_id": tc.call_id, "in_area": ok})
     if ok:
         return {"ok": True, "in_service_area": True, "zip": z, "message": "ZIP is in our service area."}
@@ -111,6 +123,7 @@ def get_available_slots(
     if isinstance(args, dict):
         return args
     call = get_or_create_call(db, tc.call_id, tc.from_number)
+    save_transcript_snapshot(db, call, tc.transcript)
     call.tool_calls += 1  # intake in progress (used to tell "abandoned" from "info only")
     db.commit()
     now = datetime.now(UTC)
@@ -121,6 +134,8 @@ def get_available_slots(
         return {"ok": False, "error": "calendar_unavailable",
                 "message": "Scheduling is unavailable right now. Apologize and take a callback request."}
     slots = slot_logic.available_slots(cfg, now, busy, start_day=args.preferred_date)
+    record_event(db, call.id, "slots_found", {
+        "count": len(slots), "first": slot_logic.spoken_label(slots[0]) if slots else None})
     if not slots:
         return {"ok": True, "slots": [], "message": "No openings found. Offer to take a callback request."}
     return {
@@ -144,10 +159,17 @@ def book_appointment(
     if isinstance(args, dict):
         return args
     call = get_or_create_call(db, tc.call_id, tc.from_number)
+    save_transcript_snapshot(db, call, tc.transcript)
     call.tool_calls += 1
     db.commit()
     res = booking_svc.book_appointment(db, cfg, cal, call, args)
     log.info("book_appointment", extra={"call_id": tc.call_id, "status": res.status})
+    if res.status == "booked" and res.appointment:
+        a0 = res.appointment
+        label0 = slot_logic.spoken_label(slot_logic.Slot(a0.slot_start.astimezone(cfg.tz), a0.slot_end.astimezone(cfg.tz)))
+        record_event(db, call.id, "appointment_booked", {"appointment_id": a0.id, "when": label0})
+    elif not res.ok:
+        record_event(db, call.id, "booking_failed", {"status": res.status})
 
     if res.ok and res.appointment:
         a = res.appointment
@@ -169,6 +191,10 @@ def book_appointment(
     if res.status == "out_of_area":
         return {"ok": False, "status": res.status,
                 "message": "That ZIP is outside our service area. Do not book. Offer to take a message."}
+    if res.status == "phone_required":
+        return {"ok": False, "status": res.status,
+                "message": "There is no caller ID on this session. Ask the caller for the best callback "
+                           "phone number, repeat it back, then call book_appointment again with `phone`."}
     if res.status == "emergency_call":
         return {"ok": False, "status": res.status,
                 "message": "This call is flagged as a safety emergency. Do NOT book. Repeat the safety instructions."}
@@ -196,12 +222,15 @@ def flag_emergency(
     if isinstance(args, dict):
         return args
     call = get_or_create_call(db, tc.call_id, tc.from_number)
+    save_transcript_snapshot(db, call, tc.transcript)
     call.set_outcome(Outcome.EMERGENCY)
     call.urgency = "emergency"
     call.emergency_hazard = args.hazard.value
     if args.caller_name:
         call.caller_name = args.caller_name
     db.commit()
+    record_event(db, call.id, "emergency_flagged", {
+        "hazard": args.hazard.value, "details": args.details, "address": args.address})
     defer(background, _notify_emergency_task, call.id, args.details, args.address)
     log.warning("EMERGENCY flagged", extra={"call_id": tc.call_id, "hazard": args.hazard.value})
     cfg = get_company()
@@ -219,12 +248,18 @@ def request_callback(tc: ToolCall = Depends(tool_call), db: Session = Depends(ge
     if isinstance(args, dict):
         return args
     call = get_or_create_call(db, tc.call_id, tc.from_number)
+    save_transcript_snapshot(db, call, tc.transcript)
+    number = args.callback_number or call.caller_number
+    if not number:  # web/chat sessions have no caller ID
+        return {"ok": False, "error": "callback_number_required",
+                "message": "Ask the caller for the best callback phone number, repeat it back, then try again."}
     call.set_outcome(Outcome.CALLBACK)  # never downgrades booked/emergency
     call.caller_name = call.caller_name or args.caller_name
-    call.callback_number = args.callback_number or call.caller_number
+    call.callback_number = number
     note = args.message + (f" (best time: {args.best_time})" if args.best_time else "")
     call.callback_message = note
     raise_urgency(call, call.urgency or "routine")
     db.commit()
+    record_event(db, call.id, "callback_requested", {})
     log.info("callback requested", extra={"call_id": tc.call_id})
     return {"ok": True, "message": "Callback request saved. Tell the caller someone will call them back, then close politely."}

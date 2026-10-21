@@ -32,6 +32,15 @@ def spoken_label(slot: Slot) -> str:
     )
 
 
+def window_label(slot: Slot) -> str:
+    """Compact form for UI rows: '8-10 AM' or '11 AM-1 PM' (en dash)."""
+    sm, em = ("AM" if slot.start.hour < 12 else "PM"), ("AM" if slot.end.hour < 12 else "PM")
+    start, end = _hour_12(slot.start), _hour_12(slot.end)
+    if sm == em:
+        start = start.removesuffix(f" {sm}")
+    return f"{start}\u2013{end}"
+
+
 def candidate_windows(cfg: CompanyConfig, now: datetime, start_day: date | None = None) -> list[Slot]:
     """Every arrival window the business rules allow, ignoring the calendar."""
     sch = cfg.scheduling
@@ -103,3 +112,19 @@ def search_range(cfg: CompanyConfig, now: datetime) -> Interval:
         now.date() + timedelta(days=cfg.scheduling.max_days_ahead + 1), time(0), tzinfo=cfg.tz
     )
     return now, end
+
+
+def day_windows(cfg: CompanyConfig, day: date) -> list[Slot]:
+    """All arrival windows on a given local day, ignoring lead time and the calendar (for the day view)."""
+    hours = cfg.scheduling.business_hours.get(DAYS[day.weekday()])
+    if not hours:
+        return []
+    sch, tz = cfg.scheduling, cfg.tz
+    cursor = datetime.combine(day, hours[0], tzinfo=tz)
+    close = datetime.combine(day, hours[1], tzinfo=tz)
+    width = timedelta(hours=sch.window_hours)
+    out: list[Slot] = []
+    while cursor + width <= close:
+        out.append(Slot(cursor, cursor + width))
+        cursor += timedelta(hours=sch.window_step_hours)
+    return out

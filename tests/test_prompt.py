@@ -35,6 +35,9 @@ def test_setup_script_dry_run():
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
     assert payload["agent"]["webhook_events"] == ["call_started", "call_ended", "call_analyzed"]
+    chat = payload["chat_agent"]  # same LLM => same prompt + tools as voice
+    assert chat["response_engine"]["type"] == "retell-llm"
+    assert chat["webhook_events"] == ["chat_started", "chat_ended", "chat_analyzed"]
 
 
 def test_prompt_enforces_call_tuning_rules(cfg):
@@ -48,3 +51,8 @@ def test_prompt_enforces_call_tuning_rules(cfg):
     safety = out[out.index("## Step 1"):out.index("## Step 2")]
     assert "Never ask" in safety and "my AC stopped working" in safety
     assert "only for what is missing" in out.lower() or "only ask for what is still missing" in out
+
+
+def test_prompt_handles_sessions_without_caller_id(cfg):
+    out = load_and_render(ROOT / "prompts" / "agent_prompt.md", cfg)
+    assert '"unknown"' in out and "pass it as `phone`" in out

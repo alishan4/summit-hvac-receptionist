@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, TypeDecorator, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, TypeDecorator, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -102,3 +102,29 @@ class Appointment(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     call: Mapped[Call] = relationship(back_populates="appointments")
+
+
+class CallEvent(Base):
+    """Timeline step for the demo UI (one row per thing that happened on a call)."""
+
+    __tablename__ = "call_events"
+    __table_args__ = (Index("ix_call_events_call", "call_id", "id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    call_id: Mapped[int] = mapped_column(ForeignKey("calls.id"))
+    kind: Mapped[str] = mapped_column(String(40))
+    detail: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class DemoHit(Base):
+    """Rate-limit ledger for /demo endpoints (DB-backed: serverless instances share nothing in memory)."""
+
+    __tablename__ = "demo_hits"
+    __table_args__ = (Index("ix_demo_hits_lookup", "kind", "ip_hash", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(24))  # web_call | chat | chat_msg | bad_code
+    ip_hash: Mapped[str] = mapped_column(String(16))
+    ref: Mapped[str | None] = mapped_column(String(128))  # e.g. chat id for per-chat message caps
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

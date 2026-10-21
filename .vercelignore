@@ -9,3 +9,4 @@ secrets
 __pycache__
 .retell_agent.json
 Dockerfile
+web

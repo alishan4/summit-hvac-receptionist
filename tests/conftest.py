@@ -15,6 +15,7 @@ os.environ.update(
     {
         "COMPANY_CONFIG_PATH": str(ROOT / "config" / "company.yaml"),
         "PROMPT_PATH": str(ROOT / "prompts" / "agent_prompt.md"),
+        "BRANDING_CONFIG_PATH": str(ROOT / "config" / "branding.yaml"),
         "DATABASE_URL": os.environ.get("TEST_DATABASE_URL", "sqlite://"),  # opt-in: run the suite on Postgres
         "CALENDAR_BACKEND": "fake",
         "SMS_BACKEND": "log",

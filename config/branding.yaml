@@ -1,0 +1,37 @@
+# White-label the demo website. Change values, redeploy the API: the site re-skins itself
+# (it reads this via GET /demo/branding), no frontend code changes or rebuild needed.
+agency:
+  name: "Northpeak Digital"          # your agency (shown in the "Powered by" line)
+  show_powered_by: true
+badge: "AI After-Hours Receptionist — Demo"
+tagline: "Every after-hours call answered, qualified and booked, while your team sleeps."
+accent_color: "#2563eb"              # one brand colour; tints/hover are derived from it
+logo_path: "config/branding/logo.svg"  # served by the API at /demo/branding/logo (svg/png/jpg/webp)
+
+# Caller scripts shown as one-click cards (read them aloud on the call, or paste them in chat).
+scenarios:
+  - id: urgent-booking
+    title: "AC broken + elderly parent"
+    subtitle: "Urgent booking"
+    tone: "urgent"          # urgent | emergency | neutral
+    script: >-
+      "Hi, my air conditioner just stopped working and it's really hot. My mother is 82 and
+      lives with me. My name is Jamie Rivera, I'm at 123 Main Street, zip code 80203.
+      Do you have anything for tomorrow morning?"
+  - id: gas-emergency
+    title: "Gas smell"
+    subtitle: "Emergency path"
+    tone: "emergency"
+    script: >-
+      "I smell gas near my furnace. It smells like rotten eggs, and I'm in the basement."
+  - id: out-of-area
+    title: "Outside service area"
+    subtitle: "Polite decline"
+    tone: "neutral"
+    script: >-
+      "My AC isn't cooling. I'm in Boulder, zip code 80301. Can someone come out today?"
+
+# What to say on stage (shown in the footer help; optional)
+demo_tips:
+  - "Start the call and read the first card out loud, then watch the right-hand side."
+  - "Try the gas-smell card second: the owner alert fires and booking is refused."
