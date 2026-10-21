@@ -2,7 +2,7 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir fastapi uvicorn pydantic pydantic-settings sqlalchemy pyyaml httpx \
+RUN pip install --no-cache-dir fastapi uvicorn pydantic pydantic-settings sqlalchemy "psycopg[binary]" pyyaml httpx \
     google-api-python-client google-auth
 COPY app ./app
 COPY config ./config

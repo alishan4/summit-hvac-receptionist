@@ -13,10 +13,12 @@ FastAPI -> Google Calendar (free/busy + events) | Twilio SMS | SMTP email | SQLi
 ## Project layout
 
 ```
+api/index.py               Vercel serverless entrypoint (vercel.json rewrites all routes here)
 config/company.yaml        all client-specific values (name, tz, ZIPs, hours, fee, owner, greeting)
 prompts/agent_prompt.md    voice prompt, {{variables}} filled from company.yaml
 app/                       FastAPI app (routers/, services/, models, schemas, security)
 scripts/setup_retell_agent.py   create/update the Retell LLM + agent
+scripts/init_db.py         one-off table creation (never runs at startup)
 tests/                     pytest suite (no network, no credentials needed)
 ```
 
@@ -36,7 +38,9 @@ Hours, slot length, lead time, how many slots to offer, and the dispatch fee are
 uv sync --python 3.12          # or: python3.12 -m venv .venv && .venv/bin/pip install -e . pytest
 cp .env.example .env
 .venv/bin/pytest               # should be all green before you touch any account
+.venv/bin/python scripts/init_db.py   # creates tables (local SQLite file by default)
 ```
+Tables are never created at app startup. Run `scripts/init_db.py` once per environment (and after schema changes).
 
 ### 1. Retell account
 1. Sign up at retellai.com and create an **API key** (Dashboard -> API Keys). The key needs the **webhook badge**: Retell signs webhooks and function calls with it, and this app verifies them with the same key.
@@ -91,7 +95,44 @@ docker build -t summit-receptionist .
 docker run -p 8000:8000 --env-file .env -v summit-data:/data \
   -v $PWD/secrets:/app/secrets:ro summit-receptionist
 ```
-Switch to Postgres by setting `DATABASE_URL=postgresql+psycopg://...` and adding the `psycopg` driver. The models are plain SQLAlchemy.
+Use Postgres by setting `DATABASE_URL` to a `postgresql://...` URL (the `psycopg` driver is already included), and run `python scripts/init_db.py` once.
+
+## Deploy to Vercel (free tier) with Neon Postgres
+
+The app runs as one Python serverless function (`api/index.py`); `vercel.json` rewrites every route (`/health`, `/tools/*`, `/webhooks/retell`) to it. Dependencies come from `requirements.txt` (keep it in sync with `pyproject.toml`).
+
+1. **Create a Neon project** at neon.tech (free plan is fine). Pick a region close to your Vercel region (default `iad1`, US East).
+2. **Copy the pooled connection string**: Neon dashboard -> *Connect* -> toggle **Connection pooling** on. The host contains `-pooler`, e.g.
+   `postgresql://user:pass@ep-xxx-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require`.
+   The app keeps no connections between invocations (`NullPool`) and disables prepared statements, which PgBouncer's transaction mode needs. Do not use the non-pooled string for the running app.
+3. **Create the tables** (one-off, from your laptop):
+   ```bash
+   DATABASE_URL='postgresql://...-pooler...?sslmode=require' .venv/bin/python scripts/init_db.py
+   # -> ok - postgresql: tables = appointments, calls
+   ```
+4. **Import the repo in Vercel** (Add New -> Project -> pick this GitHub repo; framework preset "Other"). Or use the CLI: `npx vercel`.
+5. **Set environment variables** (Project -> Settings -> Environment Variables, Production). Copy from `.env.example`; the ones that matter:
+   | Variable | Value |
+   |---|---|
+   | `DATABASE_URL` | the Neon **pooled** string |
+   | `PUBLIC_BASE_URL` | your Vercel production URL, e.g. `https://summit-hvac-receptionist.vercel.app` (set after the first deploy) |
+   | `RETELL_API_KEY`, `RETELL_VERIFY_SIGNATURE=true` | as before |
+   | `CALENDAR_BACKEND=google`, `GOOGLE_CALENDAR_ID` | as before |
+   | `GOOGLE_SERVICE_ACCOUNT_JSON` | the **whole key JSON** pasted as the value. There is no `secrets/` folder on Vercel, so leave `GOOGLE_SERVICE_ACCOUNT_FILE` empty |
+   | `SMS_BACKEND=twilio`, `TWILIO_*` | as before |
+   | `EMAIL_BACKEND`, `EMAIL_FROM`, `SMTP_*` (or `RESEND_API_KEY`) | as before |
+6. **Redeploy** so the variables take effect (Deployments -> ... -> Redeploy, or `npx vercel --prod`). Check `curl https://<your-app>.vercel.app/health`.
+7. **Point Retell at Vercel**: set `PUBLIC_BASE_URL` in your local `.env` to the Vercel URL, then
+   ```bash
+   .venv/bin/python scripts/setup_retell_agent.py   # updates the existing agent in place
+   ```
+   Tools and webhooks now call Vercel; ngrok is no longer needed. Re-run the script whenever the URL, YAML or prompt changes.
+
+Serverless notes:
+- **No filesystem writes at runtime.** Logs go to stdout (Vercel logs), the database is Postgres, credentials come from env vars. SQLite is refused on Vercel with a clear error.
+- **Side effects run before the response on Vercel.** The booking SMS, emergency alert and summary email run inline there, because a serverless function can be frozen right after it responds and drop background work. This adds roughly a second to those calls. Elsewhere (local, Docker) they run after the response.
+- **Limits.** `maxDuration` is 30 s. Retell's tool timeout is 15 s. A cold start adds about a second to the first call after idle time, so make one test call or hit `/health` before a live demo.
+- Hobby (free) plans are for non-commercial use under Vercel's terms. Move a paying client to Pro.
 
 ## 5 test call scripts
 
@@ -113,6 +154,7 @@ Use the numbers below as the caller. Expected results are in italics.
 - **Signatures.** `/tools/*` and `/webhooks/retell` verify `X-Retell-Signature` (`v=<ms>,d=<HMAC-SHA256(body+ts, API key)>`, 5-minute window). Keep `RETELL_VERIFY_SIGNATURE=true` outside of curl experiments.
 - **Emergencies.** `flag_emergency` sets the call to `emergency`, texts and emails the owner once (idempotent), and blocks bookings on that call. If the alert fails at tool time, the `call_ended` webhook retries it. Outcome never downgrades (emergency > booked > callback > info_only > abandoned).
 - **Logging.** JSON logs carry call ids, outcomes, and masked numbers (`***1234`). No names, addresses, or transcripts. Transcripts go only to the DB and owner email.
+- **Database.** `DATABASE_URL` selects Postgres (prod) or SQLite (local dev/tests). `TEST_DATABASE_URL=postgresql://... pytest` runs the suite against Postgres.
 - **Single technician.** One calendar = one tech. For multiple techs, use one calendar per tech and change the unique constraint on `appointments`.
 - **Dispatch timing.** Windows come from business hours + `min_lead_hours`; the agent never promises same-night arrival.
 

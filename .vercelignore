@@ -1,0 +1,11 @@
+.venv
+.git
+.env
+tests
+scripts
+secrets
+*.db
+.pytest_cache
+__pycache__
+.retell_agent.json
+Dockerfile

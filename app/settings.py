@@ -11,8 +11,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_env: str = "dev"
+    vercel: str = ""  # set automatically by Vercel ("1"); selects serverless-safe behaviour
     log_level: str = "INFO"
     public_base_url: str = "http://localhost:8000"
+    # Postgres (Neon pooled string) in prod. The SQLite default is for local dev/tests only.
     database_url: str = "sqlite:///./summit.db"
     company_config_path: str = "config/company.yaml"
     prompt_path: str = "prompts/agent_prompt.md"
@@ -44,6 +46,11 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_starttls: bool = True
     resend_api_key: str = ""
+
+
+    @property
+    def serverless(self) -> bool:
+        return bool(self.vercel)
 
 
 @lru_cache

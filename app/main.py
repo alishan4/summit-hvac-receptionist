@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.company import get_company
-from app.db import init_db
 from app.logging_setup import setup_logging
 from app.routers import health, tools, webhooks
 from app.settings import get_settings
@@ -16,8 +15,7 @@ from app.settings import get_settings
 async def lifespan(_: FastAPI):
     s = get_settings()
     setup_logging(s.log_level)
-    cfg = get_company()  # fail fast on a bad company.yaml
-    init_db()
+    cfg = get_company()  # fail fast on a bad company.yaml. Tables: scripts/init_db.py, never at startup.
     logging.getLogger(__name__).info("started", extra={"company": cfg.company.name, "env": s.app_env})
     yield
 

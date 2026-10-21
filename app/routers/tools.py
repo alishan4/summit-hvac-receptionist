@@ -29,6 +29,7 @@ from app.security import require_retell_signature
 from app.services import booking as booking_svc
 from app.services import slots as slot_logic
 from app.services.calendar import CalendarClient, get_calendar
+from app.services.deferred import defer
 from app.services.calls import get_or_create_call, raise_urgency
 from app.services.notify import notify_emergency
 from app.services.service_area import in_service_area
@@ -151,7 +152,7 @@ def book_appointment(
     if res.ok and res.appointment:
         a = res.appointment
         if res.status == "booked":
-            background.add_task(_send_sms_task, a.id)
+            defer(background, _send_sms_task, a.id)
         label = slot_logic.spoken_label(slot_logic.Slot(a.slot_start.astimezone(cfg.tz), a.slot_end.astimezone(cfg.tz)))
         return {
             "ok": True, "status": res.status, "appointment_id": a.id, "when": label,
@@ -201,7 +202,7 @@ def flag_emergency(
     if args.caller_name:
         call.caller_name = args.caller_name
     db.commit()
-    background.add_task(_notify_emergency_task, call.id, args.details, args.address)
+    defer(background, _notify_emergency_task, call.id, args.details, args.address)
     log.warning("EMERGENCY flagged", extra={"call_id": tc.call_id, "hazard": args.hazard.value})
     cfg = get_company()
     return {
