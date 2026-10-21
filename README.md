@@ -182,6 +182,8 @@ Voice needs the API reachable by Retell for the tools/webhooks (use ngrok as in 
 5. Run `python scripts/init_db.py` once against the Neon database (adds `call_events` and `demo_hits`; existing tables are untouched).
 6. Re-run `python scripts/setup_retell_agent.py` (new prompt + chat agent) and copy the printed `RETELL_AGENT_ID` / `RETELL_CHAT_AGENT_ID` into the API project's env vars, then redeploy the API.
 
+**Two projects, one repo:** the API project (Root Directory = repo root) keeps `web/` out of its function bundle with `functions.excludeFiles: "web/**"` in the root `vercel.json`. Do **not** put `web` in the root `.vercelignore`: that file applies to the whole upload, including the web project, and deleting `web/package.json` makes its build fail with `NEXT_NO_VERSION`. `web/.vercelignore` exists so the web project never depends on the root file. A test (`test_two_vercel_projects_share_one_repo_safely`) guards this.
+
 ### Environment variables
 | Project | Variable | Purpose |
 |---|---|---|

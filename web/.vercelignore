@@ -1,0 +1,6 @@
+# Project-level ignore for the web project (Root Directory = web). A project-level file takes
+# precedence over the repo-root .vercelignore, which only exists for the API project.
+.env
+.env*.local
+node_modules
+.next

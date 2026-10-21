@@ -109,3 +109,46 @@ def test_no_runtime_filesystem_writes_in_app_code():
     pattern = re.compile(r"open\([^)]*['\"][wax]\+?b?['\"]|write_text|write_bytes|mkdir|makedirs|FileHandler")
     offenders = [str(p) for p in (ROOT / "app").rglob("*.py") if pattern.search(p.read_text())]
     assert offenders == []
+
+
+def _ignored(rel: str, patterns: list[str]) -> bool:
+    """Minimal gitignore-style match: a pattern without '/' matches any path component."""
+    import fnmatch
+
+    parts = rel.split("/")
+    for pat in patterns:
+        pat = pat.strip("/")
+        if "/" in pat:
+            if fnmatch.fnmatch(rel, pat) or rel.startswith(pat + "/"):
+                return True
+        elif any(fnmatch.fnmatch(part, pat) for part in parts):
+            return True
+    return False
+
+
+def _patterns(path):
+    return [l.strip() for l in path.read_text().splitlines() if l.strip() and not l.startswith("#")]
+
+
+def test_two_vercel_projects_share_one_repo_safely():
+    """Regression: the root .vercelignore applies to the WHOLE upload, including the web project
+    (Root Directory = web). Ignoring `web` there deleted package.json and broke its build (NEXT_NO_VERSION)."""
+    root = _patterns(ROOT / ".vercelignore")
+    web_files = [
+        str(p.relative_to(ROOT)) for p in (ROOT / "web").rglob("*")
+        if p.is_file() and not {"node_modules", ".next"} & set(p.parts)
+        and p.name not in {".env", "next-env.d.ts"} and not p.name.endswith(".tsbuildinfo")
+    ]
+    assert "web/package.json" in web_files and "web/next.config.ts" in web_files
+    hit = [f for f in web_files if _ignored(f, root)]
+    assert hit == [], f"root .vercelignore would delete web project files: {hit}"
+
+    # the web project's own ignore must not remove what Next needs either
+    own = _patterns(ROOT / "web" / ".vercelignore")
+    needed = [f.removeprefix("web/") for f in web_files if not f.endswith(".vercelignore")]
+    assert [f for f in needed if _ignored(f, own)] == []
+
+
+def test_api_function_bundle_excludes_the_web_folder():
+    cfg = json.loads((ROOT / "vercel.json").read_text())
+    assert cfg["functions"]["app/main.py"]["excludeFiles"] == "web/**"
