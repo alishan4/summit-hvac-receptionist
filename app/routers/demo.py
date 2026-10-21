@@ -109,12 +109,17 @@ def branding(b: Branding = Depends(get_branding), cfg: CompanyConfig = Depends(g
         "logo_url": "/demo/branding/logo",
         "scenarios": [sc.model_dump() for sc in b.scenarios],
         "demo_tips": b.demo_tips,
+        "site": b.site.model_dump(),
+        "dashboard": b.dashboard.model_dump(),
+        "service_area": {"description": cfg.service_area.description, "zips": cfg.service_area.zips},
         "company": {
             "name": cfg.company.name,
             "location": cfg.company.location,
             "timezone": cfg.company.timezone,
             "greeting": " ".join(cfg.greeting.split()),
             "dispatch_fee": cfg.pricing.fee_spoken,
+            "business_hours": {d: [t[0].strftime("%H:%M"), t[1].strftime("%H:%M")]
+                               for d, t in cfg.scheduling.business_hours.items()},
         },
         "limits": {"max_call_seconds": s.demo_max_call_seconds},
     }
@@ -305,6 +310,17 @@ def transcript_turns(text: str | None) -> list[dict]:
     return turns
 
 
+def is_in_progress(call: Call, channel: str, ended: bool, s: Settings) -> bool:
+    """A demo web/chat session whose tab was simply closed never gets an 'ended' event. Past its time cap
+    (+ grace for Retell's end-of-call webhook) it is treated as finished so the dashboard stops showing
+    it as live. Real phone calls have no cap here and are unaffected."""
+    if ended:
+        return False
+    if channel in ("web", "chat"):
+        return datetime.now(UTC) - call.created_at <= timedelta(seconds=s.demo_max_call_seconds + 90)
+    return True
+
+
 def appointment_out(cfg: CompanyConfig, a: Appointment) -> dict:
     start, end = a.slot_start.astimezone(cfg.tz), a.slot_end.astimezone(cfg.tz)
     return {
@@ -321,6 +337,7 @@ def appointment_out(cfg: CompanyConfig, a: Appointment) -> dict:
         "slot_start": start.isoformat(),
         "slot_end": end.isoformat(),
         "window_label": slot_logic.spoken_label(slot_logic.Slot(start, end)),
+        "short_label": f"{start:%a} {slot_logic.window_label(slot_logic.Slot(start, end))}",
         "sms_sent": a.sms_sent,
         "added_to_calendar": bool(a.calendar_event_id),
     }
@@ -332,6 +349,7 @@ def call_events(
     _ip: str = Depends(require_code),
     db: Session = Depends(get_db),
     cfg: CompanyConfig = Depends(get_company),
+    s: Settings = Depends(get_settings),
 ) -> dict:
     call = db.scalar(select(Call).where(Call.retell_call_id == call_id))
     if call is None:
@@ -364,7 +382,9 @@ def call_events(
     return {
         "call": {
             "call_id": call.retell_call_id,
-            "status": "ended" if "call_ended" in kinds else "in_progress",
+            "status": "in_progress" if is_in_progress(
+                call, next((e.detail or {}).get("channel", "phone") for e in events if e.kind == "call_started")
+                if "call_started" in kinds else "phone", "call_ended" in kinds, s) else "ended",
             "outcome": call.outcome,
             "urgency": call.urgency,
             "duration": call.duration,
@@ -411,15 +431,53 @@ def appointments(
 
 @router.get("/stats")
 def stats(_ip: str = Depends(require_code), db: Session = Depends(get_db),
-          cfg: CompanyConfig = Depends(get_company)) -> dict:
+          cfg: CompanyConfig = Depends(get_company), b: Branding = Depends(get_branding)) -> dict:
     lo, hi = _local_day_bounds(cfg, datetime.now(cfg.tz).date())
     base = select(func.count()).select_from(Call).where(Call.created_at >= lo, Call.created_at < hi)
 
     def n(outcome: Outcome) -> int:
         return db.scalar(base.where(Call.outcome == outcome.value)) or 0
 
-    return {"calls_today": db.scalar(base) or 0, "booked": n(Outcome.BOOKED),
-            "emergencies": n(Outcome.EMERGENCY), "callbacks": n(Outcome.CALLBACK)}
+    booked = n(Outcome.BOOKED)
+    avg = b.dashboard.average_job_value
+    return {"calls_today": db.scalar(base) or 0, "booked": booked,
+            "emergencies": n(Outcome.EMERGENCY), "callbacks": n(Outcome.CALLBACK),
+            "average_job_value": avg, "revenue_protected": round(booked * avg, 2)}
+
+
+@router.get("/calls")
+def calls(
+    _ip: str = Depends(require_code),
+    db: Session = Depends(get_db),
+    cfg: CompanyConfig = Depends(get_company),
+    limit: int = Query(default=30, ge=1, le=100),
+    s: Settings = Depends(get_settings),
+) -> dict:
+    """Today's calls/chats, newest first (the dashboard's call list)."""
+    lo, hi = _local_day_bounds(cfg, datetime.now(cfg.tz).date())
+    rows = list(db.scalars(select(Call).where(Call.created_at >= lo, Call.created_at < hi)
+                           .order_by(Call.created_at.desc(), Call.id.desc()).limit(limit)))
+    ids = [c.id for c in rows]
+    evs = list(db.scalars(select(CallEvent).where(CallEvent.call_id.in_(ids),
+                                                  CallEvent.kind.in_(["call_started", "call_ended"])))) if ids else []
+    channel = {e.call_id: (e.detail or {}).get("channel", "phone") for e in evs if e.kind == "call_started"}
+    ended = {e.call_id for e in evs if e.kind == "call_ended"}
+    out = []
+    for c in rows:
+        appt = max(c.appointments, key=lambda a: a.id) if c.appointments else None
+        out.append({
+            "call_id": c.retell_call_id,
+            "channel": channel.get(c.id, "phone"),
+            "started_at": c.created_at.isoformat(),
+            "status": "in_progress" if is_in_progress(c, channel.get(c.id, "phone"), c.id in ended, s) else "ended",
+            "outcome": c.outcome,
+            "urgency": c.urgency,
+            "caller": c.caller_name or c.caller_number,
+            "duration": c.duration,
+            "summary": c.summary,
+            "appointment": appointment_out(cfg, appt)["short_label"] if appt else None,
+        })
+    return {"calls": out}
 
 
 @router.post("/reset")

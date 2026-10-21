@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --accent: #2563eb;
+  --accent: #c2410c;
   --ink: #0f172a;
-  --muted: #64748b;
+  --muted: #526077;
   --line: #e2e8f0;
   --canvas: #f6f8fb;
 }
@@ -17,11 +17,14 @@
   --color-muted: var(--muted);
   --color-line: var(--line);
   --color-canvas: var(--canvas);
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px -12px rgb(15 23 42 / 0.12);
 }
 
 html, body { background: var(--canvas); color: var(--ink); }
+html { scroll-behavior: smooth; }
+:focus-visible { outline-color: var(--accent); }
 body { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

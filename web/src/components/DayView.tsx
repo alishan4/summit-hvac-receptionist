@@ -53,7 +53,7 @@ export function DayView({
               <li key={w.start}
                 className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm transition ${
                   w.status === "booked" ? "animate-pop bg-accent-soft ring-1 ring-accent-ring"
-                  : w.status === "past" ? "bg-slate-50 text-slate-400"
+                  : w.status === "past" ? "bg-slate-50 text-slate-500"
                   : "border border-dashed border-line text-slate-500"}`}>
                 <span className="w-28 shrink-0 font-mono text-xs">{w.label}</span>
                 {w.appointment ? (

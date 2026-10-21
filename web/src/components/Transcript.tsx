@@ -4,15 +4,17 @@ import { Bot, User } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { Turn } from "@/lib/types";
 
-export function Transcript({ turns, empty, note }: { turns: Turn[]; empty: string; note?: string }) {
+export function Transcript({
+  turns, empty, note, className = "max-h-64 min-h-28",
+}: { turns: Turn[]; empty: string; note?: string; className?: string }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turns]);
 
   return (
-    <div>
-      <div className="scroll-thin max-h-64 min-h-28 space-y-3 overflow-y-auto rounded-xl bg-slate-50/70 p-4" role="log" aria-live="polite">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className={`scroll-thin space-y-3 overflow-y-auto rounded-xl bg-slate-50/70 p-4 ${className}`} role="log" aria-live="polite" aria-label="Call transcript" tabIndex={0}>
         {turns.length === 0 && <p className="py-6 text-center text-[13px] text-muted">{empty}</p>}
         {turns.map((t, i) => (
           <div key={i} className={`animate-rise flex gap-2.5 ${t.role === "user" ? "flex-row-reverse" : ""}`}>

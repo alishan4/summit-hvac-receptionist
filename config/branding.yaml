@@ -5,7 +5,7 @@ agency:
   show_powered_by: true
 badge: "AI After-Hours Receptionist — Demo"
 tagline: "Every after-hours call answered, qualified and booked, while your team sleeps."
-accent_color: "#2563eb"              # one brand colour; tints/hover are derived from it
+accent_color: "#c2410c"              # one brand colour; must keep >=4.5:1 contrast with white (white text sits on it)
 logo_path: "config/branding/logo.svg"  # served by the API at /demo/branding/logo (svg/png/jpg/webp)
 
 # Caller scripts shown as one-click cards (read them aloud on the call, or paste them in chat).
@@ -31,7 +31,51 @@ scenarios:
     script: >-
       "My AC isn't cooling. I'm in Boulder, zip code 80301. Can someone come out today?"
 
+# Dashboard: the "revenue protected" tile = booked jobs x this value
+dashboard:
+  average_job_value: 650
+
 # What to say on stage (shown in the footer help; optional)
 demo_tips:
   - "Start the call and read the first card out loud, then watch the right-hand side."
   - "Try the gas-smell card second: the owner alert fires and booking is refused."
+
+# ----------------------------------------------------------------------------------------------
+# Public website content (the homeowner view at "/"). Everything here is shown on the site, so a
+# new prospect demo = new values, no code changes. Placeholders: {dispatch_fee} {company} {phone}.
+# Icon names: snowflake flame waves wind wrench thermometer home shield-check clock calendar-check
+#             badge-dollar-sign siren leaf star users sparkles
+site:
+  domain: "summitheatingair.example"
+  phone: "(303) 555-0142"
+  address: "2150 Blake Street, Denver, CO 80205"
+  hours_text: "Office: Mon-Fri 8am-6pm, Sat 9am-3pm. After hours, our AI assistant books visits 24/7."
+  eyebrow: "Family-owned in Denver since 2007"
+  hero_headline: "Denver's 24/7 heating & cooling experts"
+  hero_subline: "Furnace out at 2 a.m.? AC down in July? Tell us what's wrong and we'll get a technician on the calendar, any hour, any day."
+  years_in_business: 18
+  rating: 4.9
+  review_count: 412
+  services:
+    - { icon: snowflake, title: "AC repair", blurb: "Warm air, strange noises or a unit that won't start. We diagnose it and fix it right the first time." }
+    - { icon: flame, title: "Furnace repair", blurb: "No heat is never convenient. We carry the common parts on the truck to get you warm again fast." }
+    - { icon: waves, title: "Heat pumps", blurb: "Efficient year-round comfort for Denver homes. Repairs, tune-ups and replacements." }
+    - { icon: calendar-check, title: "Maintenance plans", blurb: "Twice-a-year tune-ups that catch small problems early and keep your warranty intact." }
+    - { icon: home, title: "New system installs", blurb: "Honest sizing, clear quotes and clean installs of high-efficiency heating and cooling." }
+    - { icon: wind, title: "Indoor air quality", blurb: "Filtration, humidifiers and purifiers for dry Colorado winters and wildfire-smoke summers." }
+  why_choose:
+    - { icon: badge-dollar-sign, title: "Upfront pricing", text: "Our {dispatch_fee} diagnostic fee is applied toward your repair if you go ahead. No surprises, no pressure." }
+    - { icon: clock, title: "Same-day and next-day windows", text: "Pick a 2-hour arrival window that fits your day. We show up when we say we will." }
+    - { icon: siren, title: "Safety first, always", text: "Smell gas or hear a CO alarm? We'll tell you exactly what to do, right away, and alert our owner." }
+    - { icon: shield-check, title: "Licensed & insured", text: "Background-checked, factory-trained technicians who treat your home like their own." }
+  reviews:
+    - { name: "Maria G.", area: "Highlands", text: "Furnace died on a Sunday night in January. I got a time slot within minutes and the tech was here the next morning. Lifesaver.", rating: 5 }
+    - { name: "Tom & Beth R.", area: "Lakewood", text: "Straight answers and a fair price. They explained what was wrong and what could wait. Very different from the last company.", rating: 5 }
+    - { name: "Devon K.", area: "Aurora", text: "Booked our AC tune-up at 11 pm without waiting on hold. The confirmation text came through immediately.", rating: 5 }
+  service_area_names: ["Denver", "Aurora", "Lakewood", "Arvada", "Englewood", "Westminster", "Wheat Ridge", "Edgewater"]
+  about:
+    - "Summit Heating & Air started with one van and a simple idea: treat every home like your own, and tell people the truth about what they need."
+    - "Today our team of NATE-style certified technicians serves the Denver metro. Our after-hours assistant means no call goes unanswered, even at 2 a.m."
+  cta_headline: "Don't sit in the cold (or the heat)."
+  cta_subline: "Talk to us now, or tell us what's wrong and we'll book your visit."
+  disclaimer: "Demo website for a fictional business. Built to showcase AI receptionist technology."

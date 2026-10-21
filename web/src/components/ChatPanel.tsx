@@ -13,13 +13,15 @@ interface Msg {
 }
 
 export function ChatPanel({
-  api, branding, onSession, draft, onDraftUsed,
+  api, branding, onSession, draft = null, onDraftUsed, fill = false,
 }: {
   api: Api;
   branding: Branding;
   onSession: (id: string) => void;
-  draft: string | null;
-  onDraftUsed: () => void;
+  draft?: string | null;
+  onDraftUsed?: () => void;
+  /** fill the parent's height (used inside the widget) instead of a fixed-height box */
+  fill?: boolean;
 }) {
   const greeting: Msg = { role: "agent", content: branding.company.greeting };
   const [messages, setMessages] = useState<Msg[]>([greeting]);
@@ -33,7 +35,7 @@ export function ChatPanel({
   useEffect(() => {
     if (draft) {
       setInput(draft);
-      onDraftUsed();
+      onDraftUsed?.();
     }
   }, [draft, onDraftUsed]);
 
@@ -79,8 +81,8 @@ export function ChatPanel({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="scroll-thin h-[22rem] space-y-3 overflow-y-auto rounded-2xl bg-slate-50/70 p-4" role="log" aria-live="polite">
+    <div className={fill ? "flex h-full min-h-0 flex-col gap-3" : "space-y-3"}>
+      <div className={`scroll-thin space-y-3 overflow-y-auto rounded-2xl bg-slate-50/70 p-4 ${fill ? "min-h-0 flex-1" : "h-[22rem]"}`} role="log" aria-live="polite" aria-label="Conversation" tabIndex={0}>
         {messages.map((m, i) => (
           <div key={i} className={`animate-rise flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
             <p className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed ${m.role === "user" ? "rounded-br-md bg-accent text-white" : "rounded-bl-md bg-white text-slate-800 ring-1 ring-line"}`}>

@@ -50,7 +50,7 @@ function Pending({ children }: { children: ReactNode }) {
       <span className="grid size-8 place-items-center rounded-full border border-dashed border-slate-300 bg-white">
         <Spinner className="size-3.5 text-slate-400" />
       </span>
-      <span className="animate-blink">{children}</span>
+      <span>{children}</span>
     </li>
   );
 }

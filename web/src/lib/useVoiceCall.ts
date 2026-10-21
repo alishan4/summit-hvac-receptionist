@@ -35,7 +35,7 @@ function rms(samples: Float32Array): number {
   return Math.sqrt(sum / samples.length);
 }
 
-export function useVoiceCall(api: Api, onSession: (callId: string) => void) {
+export function useVoiceCall(api: Api | null, onSession: (callId: string) => void) {
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [error, setError] = useState<VoiceError | null>(null);
   const [transcript, setTranscript] = useState<Turn[]>([]);
@@ -99,6 +99,8 @@ export function useVoiceCall(api: Api, onSession: (callId: string) => void) {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       return fail({ kind: "unsupported", message: "This browser can't use the microphone here. Try Chrome, Edge or Safari over https." });
     }
+
+    if (!api) return fail({ kind: "api", message: "Enter the access code first." });
 
     // 1) Microphone first: a denied prompt must not spend a Retell call.
     setStatus("requesting_mic");

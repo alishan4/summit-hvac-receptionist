@@ -1,5 +1,5 @@
 import type {
-  Branding, CallEvents, ChatReply, ChatSession, DayView, Stats, WebCall,
+  Branding, CallEvents, CallRow, ChatReply, ChatSession, DayView, Stats, WebCall,
 } from "./types";
 
 export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/+$/, "");
@@ -78,6 +78,7 @@ export function createApi(code: string) {
     appointments: (date?: string, signal?: AbortSignal) =>
       request<DayView>(`/demo/appointments${date ? `?date=${date}` : ""}`, { code, signal }),
     stats: (signal?: AbortSignal) => request<Stats>("/demo/stats", { code, signal }),
+    calls: (signal?: AbortSignal) => request<{ calls: CallRow[] }>("/demo/calls", { code, signal }),
     reset: () => request<{ ok: true }>("/demo/reset", { method: "POST", code }),
   };
 }

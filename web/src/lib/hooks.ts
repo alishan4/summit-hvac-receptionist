@@ -72,7 +72,7 @@ export function useBranding(): BrandingState & { retry: () => void } {
  * Polls the live timeline for one call/chat (every 1.5s while it's running, and until the owner summary
  * lands after it ends). Keeps the last good snapshot so the panel never flickers empty.
  */
-export function useCallEvents(api: Api, callId: string | null) {
+export function useCallEvents(api: Api | null, callId: string | null) {
   const [data, setData] = useState<CallEvents | null>(null);
   const [loading, setLoading] = useState(false);
   const endedAt = useRef<number | null>(null);
@@ -86,7 +86,7 @@ export function useCallEvents(api: Api, callId: string | null) {
   const finished = data?.call.status === "ended" && (data.call.summary_ready || (endedAt.current !== null && Date.now() - endedAt.current > 90_000));
   usePolling(
     async (signal) => {
-      if (!callId) return;
+      if (!callId || !api) return;
       try {
         const next = await api.events(callId, signal);
         if (next.call.status === "ended" && endedAt.current === null) endedAt.current = Date.now();
@@ -98,7 +98,7 @@ export function useCallEvents(api: Api, callId: string | null) {
       }
     },
     1500,
-    callId !== null && !finished,
+    callId !== null && api !== null && !finished,
     [callId, api],
   );
 

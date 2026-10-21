@@ -14,7 +14,7 @@ FastAPI -> Google Calendar (free/busy + events) | Twilio SMS | SMTP email | SQLi
 
 ```
 web/                       Next.js demo website (separate Vercel project)
-config/branding.yaml       white-label branding for the demo site (+ config/branding/logo.svg)
+config/branding.yaml       white-label branding + public-site content + dashboard settings (+ config/branding/logo.svg)
 config/company.yaml        all client-specific values (name, tz, ZIPs, hours, fee, owner, greeting)
 prompts/agent_prompt.md    voice prompt, {{variables}} filled from company.yaml
 app/                       FastAPI app (routers/, services/, models, schemas, security)
@@ -137,12 +137,21 @@ Serverless notes:
 
 ## Demo website (for sales calls and Loom recordings)
 
-`/web` is a Next.js (App Router, TypeScript, Tailwind) site. The homeowner talks (voice) or types (text chat) to the real agent on the left. On the right the agency owner watches the live activity timeline, the booked appointment, the owner notifications, the technician's day view, and today's results. It talks to this API's `/demo/*` endpoints; the Retell API key never reaches the browser.
+`/web` is a Next.js (App Router, TypeScript, Tailwind) project with three views of the same fictional client, so on a sales call you can show both sides of the workflow:
+
+| Route | Who it's for | What it is |
+|---|---|---|
+| **`/`** | the homeowner | A realistic public site for "Summit Heating & Air" (hero, services, why-us, reviews, service-area ZIP checker, about, CTA, footer). A floating **assistant widget** (voice call or text chat) sits on every page, and every "Talk to us now" / "Book service" button opens it. A time-aware banner (company timezone) invites after-hours visitors to book right now. The access code is entered **inside the widget**, so the site itself is public. |
+| **`/dashboard`** | the business owner | A SaaS-style dashboard: today's calls list (live badge), each call's timeline, AI summary, appointment details, SMS + owner-email previews, day calendar, and stats including **estimated revenue protected** (booked jobs x average job value). It follows the live call automatically. |
+| **`/present`** | you, on a call | Split screen: the website (~60%) beside the live dashboard (~40%). Scenario chips with copy and "send to chat" buttons, plus Reset. Below the `lg` breakpoint the two halves become "Homeowner view / Business view" tabs. |
+
+It talks to this API's `/demo/*` endpoints; the Retell API key never reaches the browser.
 
 ```
 browser (/web) --X-Demo-Code--> API /demo/*  --Retell API key--> Retell (web call token / chat)
    |  voice audio goes browser <-> Retell directly, using a one-time token minted by the API
-   '-- polls /demo/calls/{id}/events every 1.5s -> live timeline, appointment card, previews
+   '-- dashboard polls /demo/calls and /demo/calls/{id}/events -> live timeline, appointment, previews
+   '-- /present embeds "/" in an iframe; the widget tells the dashboard which call is live (postMessage)
 ```
 
 ### How the Retell pieces fit (verified against Retell's docs and SDK packages)
@@ -195,24 +204,49 @@ Voice needs the API reachable by Retell for the tools/webhooks (use ngrok as in 
 | API | `BRANDING_CONFIG_PATH` | default `config/branding.yaml` |
 
 ### Make a new client demo in under 10 minutes
-1. `cp config/company.yaml config/acme.yaml` and edit company name, timezone, ZIPs, hours, fee, greeting, owner contacts. Set `COMPANY_CONFIG_PATH=config/acme.yaml`.
-2. `cp config/branding.yaml config/acme-branding.yaml`. Set your agency name, `accent_color`, `tagline`, `badge`, the three scenario scripts (match the new client's service area and street names), and `show_powered_by`. Drop the client's logo at `config/branding/acme.png` (svg/png/jpg/webp) and point `logo_path` at it. Set `BRANDING_CONFIG_PATH=config/acme-branding.yaml`.
+Nothing client-specific is hard-coded in `/web`. The site reads everything from the API, which reads two YAML files:
+
+| What | Where |
+|---|---|
+| Company name, timezone, **service-area ZIPs**, **business hours** (drive the after-hours banner), dispatch fee, greeting, owner contacts | `config/company.yaml` |
+| Agency name + "Powered by" toggle, **accent colour**, tagline, badge, logo, scenario scripts | `config/branding.yaml` |
+| **Public-site content**: phone, address, hours text, hero headline/subline, trust numbers (years, rating, review count), services, why-us points, reviews, city names, about copy, CTA, footer disclaimer | `config/branding.yaml` -> `site:` |
+| **Average job value** for the revenue-protected tile | `config/branding.yaml` -> `dashboard.average_job_value` |
+
+Steps:
+1. `cp config/company.yaml config/acme.yaml`, edit it, set `COMPANY_CONFIG_PATH=config/acme.yaml`.
+2. `cp config/branding.yaml config/acme-branding.yaml`, edit the values above, drop the client's logo in `config/branding/` (svg/png/jpg/webp) and point `logo_path` at it, set `BRANDING_CONFIG_PATH=config/acme-branding.yaml`.
 3. Commit, push (the API redeploys) and run `python scripts/setup_retell_agent.py` so the agents get the new prompt. Update the agent id env vars if they changed.
-4. Reload the site. It re-skins itself: logo, accent colour, texts, scenarios, company name, fee and timezone all come from the API, so **the web project needs no change or rebuild**. For a separate vanity URL, add a second Vercel project on the same `web` folder, or a domain alias.
+4. Reload the site. It re-skins itself, **with no change or rebuild of the web project**. Copy placeholders `{dispatch_fee}`, `{company}` and `{phone}` work inside `why_choose` text.
 
-### Demo script (about 4 minutes)
-1. **Set the scene (15 s).** "It's 9 pm, a customer's AC dies. Normally that call goes to voicemail. Watch what happens instead." Enter the access code, click **Start voice call**.
-2. **Scenario 1, urgent booking.** Open the first scenario card and read it naturally. Point out as the right side fills in:
-   - *Live activity*: service area checked, slots found, appointment booked. Each step appears as the AI does it.
-   - The AI **mentions the $89 fee and waits for a yes** before booking.
-   - *Outcome*: customer, address, issue, **Urgent** badge (elderly parent), arrival window, "Added to calendar".
-   - *Notifications*: the customer's confirmation text, and the owner's summary email (marked Draft until the call ends).
-   - *Technician schedule*: the new booking in the day view. *Results strip*: counters tick up.
-3. **Scenario 2, emergency.** Start a new call or chat and say the gas-smell line. Point out: the AI tells them to leave and call 911, **refuses to book**, and the **Owner alert** tab shows the immediate SMS + email. "The owner knows within seconds, at 2 am."
-4. **Scenario 3, out of area (optional, 30 s).** Polite decline, no calendar pollution.
-5. **Close (20 s).** "Same system answers your clients' after-hours line. New client = one config file." Click **Reset demo data** so the next demo starts clean.
+Notes:
+- **Accent colour must keep 4.5:1 contrast with white** (white text sits on it). The API refuses to start with a colour that fails, and says how to fix it.
+- Service/why-us **icon names**: `snowflake flame waves wind wrench thermometer home shield-check clock calendar-check badge-dollar-sign siren leaf star users sparkles`. Unknown names fall back to a wrench.
+- Keep reviews clearly fictional for a fictional client, and keep the footer `disclaimer`.
 
-Tip for Loom: use the **Text chat** tab with *Use in chat* if your audio is noisy: the right side behaves identically.
+### Images and credits
+No photos and no third-party artwork are used. The hero scene, logo and favicon are original SVGs created for this project (`web/src/components/site/HeroIllustration.tsx`, `config/branding/logo.svg`, `web/src/app/icon.svg`), and avatars are initials. UI icons come from [Lucide](https://lucide.dev) (ISC licence), and the fonts are Inter and Fraunces from Google Fonts (SIL Open Font Licence), loaded with `next/font`. All names, phone numbers (555-01xx), the address and the reviews are fictional. Nothing depicts a real company.
+
+### Accessibility
+Audited with axe-core (WCAG 2.1 AA + best practices) on the site, the widget (locked, chat, booked), the dashboard (empty and populated) and presenter mode: **0 violations**. Landmarks and a skip link are in place; the widget is a labelled dialog that takes focus on open, returns it on close, and closes with Esc; scrollable logs are keyboard-focusable; `prefers-reduced-motion` is respected.
+
+### Demo script (presenter mode, about 5 minutes)
+Open **`/present`** on the screen you share, enter the access code once (it unlocks both halves), and press **Reset demo** so the dashboard starts empty.
+
+1. **Frame it (20 s).** "This left side is your client's website, what their customer sees. The right side is what the business sees. It's 9 pm and a customer's AC just died. Normally that's voicemail." Point at the after-hours banner and the "Need help? We answer 24/7" widget.
+2. **Scenario 1: urgent booking (2 min).** Click the **AC broken + elderly parent** chip: the script appears in a bar under the top. Click the widget, choose **Call us**, **Start call**, and read the script naturally (or use the chip's chat button to drop it into the chat). Point at the **Business view** as it fills in:
+   - **Today's calls**: the new call appears instantly with a **Live** badge.
+   - **Live activity**: service area checked, slots found, booked. Each step appears as the AI does it.
+   - The AI **states the $89 fee and waits for a yes** before booking.
+   - **Outcome**: customer, address, issue, the **Urgent** badge (elderly parent), arrival window, "Added to calendar".
+   - **Notifications**: the customer's confirmation text, and the owner's email (Draft until the call ends, then final with the AI summary).
+   - **Stats**: calls and bookings tick up, and **revenue protected** grows by the average job value. "That's a job that would have gone to a competitor."
+   - Back in the widget the homeowner sees the confirmation card: "You're booked: Thu 10-12 PM".
+3. **Scenario 2: gas smell (1 min).** Click the **Gas smell** chip, start a new chat and send it. Point out: the AI tells them to leave and call 911 and the gas utility, **refuses to book**, and the dashboard shows a red **Emergency flagged**, **Owner alerted immediately**, and the **Owner alert** tab with the instant SMS and email. "The owner knows within seconds, at 2 am."
+4. **Scenario 3: outside the area (30 s, optional).** Polite decline, nothing booked. Also try the **ZIP checker** on the site (80203 yes, 80301 no).
+5. **Close (30 s).** Open **`/dashboard`** in a second tab for the full-width view. "Same system answers your clients' after-hours line. A new client is a config file, not a project." Press **Reset demo** so the next demo starts clean.
+
+Tips: on a noisy line use the widget's **Chat** (or a chip's chat button): the business view behaves identically. The widget keeps a live call going if you minimise it, so you can scroll the site while the AI talks.
 
 ## 5 test call scripts
 

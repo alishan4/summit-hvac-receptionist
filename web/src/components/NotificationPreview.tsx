@@ -27,7 +27,7 @@ function Email({ mail, draft }: { mail: EmailPreview; draft?: boolean }) {
         </div>
         <p className="text-xs text-muted">To: {mail.to}</p>
       </div>
-      <pre className="scroll-thin max-h-72 overflow-auto whitespace-pre-wrap px-4 py-3 font-sans text-[13px] leading-relaxed text-slate-700">{mail.body}</pre>
+      <pre tabIndex={0} aria-label="Email body" className="scroll-thin max-h-72 overflow-auto whitespace-pre-wrap px-4 py-3 font-sans text-[13px] leading-relaxed text-slate-700">{mail.body}</pre>
     </div>
   );
 }

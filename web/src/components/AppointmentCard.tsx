@@ -5,7 +5,7 @@ import { Card, Chip, Empty, PanelHeader } from "./ui";
 function Row({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-3 text-sm">
-      <span className="mt-0.5 text-slate-400">{icon}</span>
+      <span className="mt-0.5 text-slate-500">{icon}</span>
       <div className="min-w-0">{children}</div>
     </div>
   );
@@ -55,14 +55,14 @@ export function AppointmentCard({ data }: { data: CallEvents | null }) {
         ) : outcome === "emergency" ? (
           <div className="animate-pop rounded-xl border border-red-200 bg-red-50 p-4">
             <p className="flex items-center gap-2 text-sm font-semibold text-red-800"><ShieldAlert className="size-4" /> Safety emergency. Nothing was booked.</p>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-red-800/90">
+            <p className="mt-1.5 text-[13px] leading-relaxed text-red-800">
               The caller was told to leave the home and call 911 and the gas utility. The owner was alerted instantly.
             </p>
           </div>
         ) : outcome === "callback" ? (
           <div className="animate-pop rounded-xl border border-amber-200 bg-amber-50 p-4">
             <p className="flex items-center gap-2 text-sm font-semibold text-amber-900"><PhoneForwarded className="size-4" /> Callback requested</p>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-amber-900/90">A message was saved for the team to follow up.</p>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-amber-900">A message was saved for the team to follow up.</p>
           </div>
         ) : outcome === "info_only" || outcome === "abandoned" ? (
           <div className="animate-pop rounded-xl bg-slate-50 p-4 text-sm text-slate-700">

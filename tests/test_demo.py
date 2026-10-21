@@ -306,14 +306,16 @@ def test_day_view_closed_day_and_bad_date(demo):
 
 def test_stats_count_todays_outcomes(demo):
     assert demo.c.get("/demo/stats", headers=CODE).json() == {
-        "calls_today": 0, "booked": 0, "emergencies": 0, "callbacks": 0}
+        "calls_today": 0, "booked": 0, "emergencies": 0, "callbacks": 0,
+        "average_job_value": 650.0, "revenue_protected": 0.0}
     s = slots(demo.c, "c_book")[0]
     book(demo.c, "c_book", s["start"])
     signed_post(demo.c, "/tools/flag_emergency", tool_body("c_gas", "x", {"hazard": "co_alarm"}))
     signed_post(demo.c, "/tools/request_callback", tool_body("c_cb", "x", {"caller_name": "Pat", "message": "hi"}))
     signed_post(demo.c, "/tools/check_service_area", tool_body("c_info", "x", {"zip": "80301"}))
     assert demo.c.get("/demo/stats", headers=CODE).json() == {
-        "calls_today": 4, "booked": 1, "emergencies": 1, "callbacks": 1}
+        "calls_today": 4, "booked": 1, "emergencies": 1, "callbacks": 1,
+        "average_job_value": 650.0, "revenue_protected": 650.0}  # booked jobs x average job value
 
 
 def test_reset_clears_demo_data_and_calendar_but_keeps_rate_limits(demo):
@@ -390,3 +392,94 @@ def test_transcript_snapshots_from_tool_calls_give_a_near_live_transcript(demo):
     signed_post(demo.c, "/tools/check_service_area", body)
     ev = demo.c.get(f"/demo/calls/{cid}/events", headers=CODE).json()
     assert len(ev["call"]["transcript"]) == 3
+
+
+# ------------------------------------------------------------------ dashboard call list + site content
+def test_calls_list_for_dashboard(demo):
+    assert demo.c.get("/demo/calls", headers=CODE).json() == {"calls": []}
+    assert demo.c.get("/demo/calls").status_code == 401
+
+    web = demo.c.post("/demo/web-call", headers=CODE).json()["call_id"]  # voice, still in progress
+    s = slots(demo.c, "c_phone")[0]
+    book(demo.c, "c_phone", s["start"])  # a phone call that booked
+    signed_post(demo.c, "/webhooks/retell", {"event": "call_started", "call": {
+        "call_id": "c_phone", "from_number": "+13035551234", "start_timestamp": 1_760_000_000_000}})
+    signed_post(demo.c, "/webhooks/retell", {"event": "call_ended", "call": {
+        "call_id": "c_phone", "start_timestamp": 1_760_000_000_000, "end_timestamp": 1_760_000_045_000,
+        "transcript_object": [{"role": "agent", "content": "hi"}, {"role": "user", "content": "yo"}]}})
+    signed_post(demo.c, "/tools/flag_emergency", tool_body("c_gas", "x", {"hazard": "gas_smell"}))
+
+    rows = {r["call_id"]: r for r in demo.c.get("/demo/calls", headers=CODE).json()["calls"]}
+    assert set(rows) == {web, "c_phone", "c_gas"}
+    assert rows[web]["channel"] == "web" and rows[web]["status"] == "in_progress" and rows[web]["outcome"] is None
+    p = rows["c_phone"]
+    assert (p["channel"], p["status"], p["outcome"], p["duration"], p["caller"]) == (
+        "phone", "ended", "booked", 45, "Jamie Rivera")
+    assert p["appointment"] and "\u2013" in p["appointment"]  # e.g. "Thu 8-10 AM"
+    assert rows["c_gas"]["outcome"] == "emergency"
+    # newest first
+    order = [r["call_id"] for r in demo.c.get("/demo/calls", headers=CODE).json()["calls"]]
+    assert order[0] == "c_gas"
+
+
+def test_appointment_short_label_for_booking_confirmation(demo):
+    s = slots(demo.c, "c_short")[0]
+    book(demo.c, "c_short", s["start"])
+    appt = demo.c.get("/demo/calls/c_short/events", headers=CODE).json()["appointment"]
+    start = datetime.fromisoformat(s["start"])
+    assert appt["short_label"].startswith(start.strftime("%a ")) and "\u2013" in appt["short_label"]
+
+
+def test_branding_carries_site_content_and_hours_but_no_owner_details(demo):
+    r = demo.c.get("/demo/branding")
+    b = r.json()
+    site = b["site"]
+    assert site["phone"] and site["hero_headline"] and len(site["services"]) >= 3
+    assert site["disclaimer"].startswith("Demo website for a fictional business")
+    assert b["dashboard"]["average_job_value"] == 650
+    assert "80203" in b["service_area"]["zips"] and b["service_area"]["description"]
+    assert b["company"]["business_hours"]["mon"] == ["08:00", "18:00"] and "sun" not in b["company"]["business_hours"]
+    assert "owner@" not in r.text and "+13035550100" not in r.text
+
+
+def test_abandoned_demo_sessions_stop_showing_as_live(demo):
+    """Closing the tab never sends an 'ended' event: past the time cap + grace the dashboard must not keep it 'Live'."""
+    web = demo.c.post("/demo/web-call", headers=CODE).json()["call_id"]
+    signed_post(demo.c, "/tools/check_service_area", tool_body("c_phone_old", "x", {"zip": "80203"}))
+    signed_post(demo.c, "/webhooks/retell", {"event": "call_started", "call": {
+        "call_id": "c_phone_old", "from_number": "+13035551234", "start_timestamp": 1_760_000_000_000}})
+
+    def status(cid):
+        return demo.c.get(f"/demo/calls/{cid}/events", headers=CODE).json()["call"]["status"]
+
+    assert status(web) == "in_progress"
+    with session_scope() as db:
+        for cid in (web, "c_phone_old"):
+            c = db.scalar(select(Call).where(Call.retell_call_id == cid))
+            c.created_at = datetime.now(UTC) - timedelta(seconds=335)  # just past the 240s cap + 90s grace
+        db.commit()
+    assert status(web) == "ended"                      # demo session past its cap
+    assert status("c_phone_old") == "in_progress"      # a real phone call can legitimately run longer
+    rows = {r["call_id"]: r["status"] for r in demo.c.get("/demo/calls", headers=CODE).json()["calls"]}
+    assert rows[web] == "ended" and rows["c_phone_old"] == "in_progress"
+
+
+def test_branding_rejects_accent_colours_white_text_cannot_be_read_on(tmp_path):
+    import yaml
+    from app.branding import contrast_with_white, load_branding
+    from tests.conftest import ROOT
+
+    assert contrast_with_white("#000000") == pytest.approx(21, rel=0.01)
+    assert contrast_with_white("#ffffff") == pytest.approx(1, rel=0.01)
+    base = yaml.safe_load((ROOT / "config" / "branding.yaml").read_text())
+    assert contrast_with_white(base["accent_color"]) >= 4.5  # the shipped colour passes
+
+    for bad in ("#d9480f", "#f59e0b", "#60a5fa"):  # e.g. the orange that measured 4.29:1 in the a11y audit
+        base["accent_color"] = bad
+        f = tmp_path / "b.yaml"
+        f.write_text(yaml.safe_dump(base))
+        with pytest.raises(ValueError, match="contrast"):
+            load_branding(f)
+    base["accent_color"] = "#1d4ed8"
+    f.write_text(yaml.safe_dump(base))
+    assert load_branding(f).accent_color == "#1d4ed8"

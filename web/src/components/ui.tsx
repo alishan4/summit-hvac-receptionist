@@ -23,7 +23,7 @@ export function PanelHeader({ icon, title, subtitle, right }: { icon: ReactNode;
 export const TONE: Record<Tone, { dot: string; chip: string; ring: string }> = {
   neutral: { dot: "bg-slate-400", chip: "bg-slate-100 text-slate-700", ring: "ring-slate-200" },
   success: { dot: "bg-emerald-500", chip: "bg-emerald-50 text-emerald-700", ring: "ring-emerald-200" },
-  warn: { dot: "bg-amber-500", chip: "bg-amber-50 text-amber-800", ring: "ring-amber-200" },
+  warn: { dot: "bg-amber-500", chip: "bg-amber-50 text-amber-900", ring: "ring-amber-200" },
   danger: { dot: "bg-red-500", chip: "bg-red-50 text-red-700", ring: "ring-red-200" },
 };
 
